@@ -128,6 +128,15 @@ def extractive_summary(messages: List[Dict[str, Any]], max_sentences: int = 3) -
     ordered = [s for s in sentences if s in top]
     return " ".join(ordered).strip()
 
+def _safe_firestore_key(key: str) -> str:
+    """
+    Firestore does not allow keys starting with '__'.
+    Map them to 'reserved_<name>' but keep original in local memory.
+    """
+    if key.startswith("__"):
+        return f"reserved_{key.strip('_')}"
+    return key
+
 # ----------------- Storage operations -----------------
 def _ensure_account(account: Optional[str]):
     acc = account or "global"
@@ -148,6 +157,7 @@ def remember_data(account: Optional[str], key: str, value: str, tags: Optional[L
     }
     if firestore_client:
         try:
+            safe_key = _safe_firestore_key(key)
             firestore_client.collection("memories").document(acc).collection("items").document(key).set(doc)
             logger.info(f"[FIRESTORE] Saved memory {acc}:{key}")
         except Exception as e:
@@ -160,6 +170,7 @@ def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
     acc = account or "global"
     if firestore_client:
         try:
+            safe_key = _safe_firestore_key(key)
             snap = firestore_client.collection("memories").document(acc).collection("items").document(key).get()
             if snap.exists:
                 return snap.to_dict()
@@ -173,6 +184,7 @@ def forget_data(account: Optional[str], key: str) -> bool:
     removed = False
     if firestore_client:
         try:
+            safe_key = _safe_firestore_key(key)
             firestore_client.collection("memories").document(acc).collection("items").document(key).delete()
             removed = True
         except Exception as e:
@@ -377,7 +389,12 @@ class RockyAgent:
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-
+    
+ # ✅ Health check root route (fixes 404 on GET /)
+    @app.get("/")
+    def root():
+        return {"status": "ok", "service": "rocky-soulmode"}
+        
     class MemReq(BaseModel):
         account: Optional[str]
         key: str
@@ -401,11 +418,7 @@ if HAS_FASTAPI:
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
         
-    @app.get("/")
-    def root():
-        return {"status": "ok", "service": "rocky-soulmode"}
-
-    @app.post("/remember")
+      @app.post("/remember")
     def api_remember(req: MemReq):
         return remember_data(req.account, req.key, req.value, req.tags)
 
@@ -628,5 +641,6 @@ def start_worker_if_needed():
 
 # Ensure worker starts even if launched with uvicorn CLI
 start_worker_if_needed()
+
 
 
