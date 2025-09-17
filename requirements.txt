@@ -3,3 +3,7 @@ uvicorn[standard]
 google-cloud-firestore
 google-auth
 requests
+openai
+httpx
+pytz
+
