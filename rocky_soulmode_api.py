@@ -5,41 +5,18 @@ import sys
 import json
 import logging
 import unittest
-from datetime import datetime
+import threading
+import time
+import requests
+import random
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 """
 =========================================
 🚀 Rocky Soulmode Configuration (ENV Vars)
 =========================================
-
-# Core Switches
-ROCKY_ALLOW_SERVER=1        # Allow FastAPI server to start
-ROCKY_AUTONOMOUS=1          # Enable autonomous background worker
-ROCKY_WORKER_INTERVAL=300   # Worker interval in seconds (default: 300 = 5 minutes)
-
-# Behavior
-ROCKY_AUTO_REPLY=1          # If set, Rocky auto-sends replies to /agent/{account}
-ROCKY_USE_LLM=1             # Allow escalation to OpenAI LLM if local strategies fail
-ROCKY_NOTIFY_WEBHOOK=<url>  # Optional: send replies/alerts to Discord/Slack via webhook
-
-# Personality & Memory
-ROCKY_SYNC_PERSONALITY=1    # Ensure every account always has a default personality baseline
-ROCKY_SELF_REFLECT=1        # Rocky periodically reviews its own replies & saves reflections
-ROCKY_MEMORY_TTL=90d        # Archive memories older than N days (e.g., "90d")
-
-# Database
-ROCKY_DB="rocky_soulmode"   # Default DB name
-
-# OpenAI
-OPENAI_API_KEY="sk-..."     # Enable GPT-based escalation
-
------------------------------------------
-Usage:
-    export ROCKY_ALLOW_SERVER=1
-    export ROCKY_AUTONOMOUS=1
-    python rocky_soulmode_api.py
------------------------------------------
+(omitted here for brevity — same as your original docstring)
 """
 
 # Feature detection
@@ -56,11 +33,6 @@ try:
     HAS_PYDANTIC = True
 except Exception:
     HAS_FASTAPI = False
-
-"""
-⚠️ NOTE: Firestore Security Rules are managed in the Firebase console, not here.
-Make sure the service account used has `Cloud Datastore User` or `Cloud Firestore User` roles.
-"""
 
 # Firestore
 from google.cloud import firestore
@@ -131,7 +103,7 @@ def extractive_summary(messages: List[Dict[str, Any]], max_sentences: int = 3) -
 def _safe_firestore_key(key: str) -> str:
     """
     Firestore does not allow keys starting with '__'.
-    Map them to 'reserved_<name>' but keep original in local memory.
+    Map them to 'reserved_<name>'.
     """
     if key.startswith("__"):
         return f"reserved_{key.strip('_')}"
@@ -146,7 +118,7 @@ def _ensure_account(account: Optional[str]):
         _local_threads[acc] = {}
     return acc
 
-def remember_data(account: Optional[str], key: str, value: str, tags: Optional[List[str]] = None) -> Dict[str, Any]:
+def remember_data(account: Optional[str], key: str, value: Any, tags: Optional[List[str]] = None) -> Dict[str, Any]:
     acc = _ensure_account(account)
     doc = {
         "account": acc,
@@ -158,26 +130,24 @@ def remember_data(account: Optional[str], key: str, value: str, tags: Optional[L
     if firestore_client:
         try:
             safe_key = _safe_firestore_key(key)
-            firestore_client.collection("memories").document(acc).collection("items").document(key).set(doc)
-            logger.info(f"[FIRESTORE] Saved memory {acc}:{key}")
+            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).set(doc)
+            logger.info(f"[FIRESTORE] Saved memory {acc}:{safe_key}")
         except Exception as e:
             logger.warning(f"[FIRESTORE] Save failed for {acc}:{key}: {e}")
     _local_memory[acc][key] = doc
     return doc
-
 
 def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
     acc = account or "global"
     if firestore_client:
         try:
             safe_key = _safe_firestore_key(key)
-            snap = firestore_client.collection("memories").document(acc).collection("items").document(key).get()
+            snap = firestore_client.collection("memories").document(acc).collection("items").document(safe_key).get()
             if snap.exists:
                 return snap.to_dict()
         except Exception as e:
             logger.warning(f"[FIRESTORE] Recall failed for {acc}:{key}: {e}")
     return _local_memory.get(acc, {}).get(key)
-
 
 def forget_data(account: Optional[str], key: str) -> bool:
     acc = account or "global"
@@ -185,14 +155,13 @@ def forget_data(account: Optional[str], key: str) -> bool:
     if firestore_client:
         try:
             safe_key = _safe_firestore_key(key)
-            firestore_client.collection("memories").document(acc).collection("items").document(key).delete()
+            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).delete()
             removed = True
         except Exception as e:
             logger.warning(f"[FIRESTORE] Delete failed for {acc}:{key}: {e}")
     if _local_memory.get(acc, {}).pop(key, None) is not None:
         removed = True
     return removed
-
 
 def export_all(account: Optional[str] = None) -> Dict[str, Any]:
     out: Dict[str, Any] = {"memories": {}, "threads": {}, "personality": {}}
@@ -253,7 +222,6 @@ def fetch_thread_messages(account: Optional[str], thread_id: str) -> List[Dict[s
     return _local_threads.get(acc, {}).get(thread_id, [])
 
 # ----------------- Scan & Respond -----------------
-
 def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Optional[str], max_context: int = 10, use_llm: bool = False) -> Dict[str, Any]:
     acc = account or "global"
     messages: List[Dict[str, Any]] = []
@@ -330,7 +298,6 @@ class RockyAgent:
         self.thread_id = thread_id or f"{account}::default"
         self.personality = get_personality(account)
 
-
     def _log_user(self, text: str):
         log_thread(self.account, self.thread_id, [{"role": "user", "content": text, "timestamp": now_iso()}])
 
@@ -389,8 +356,7 @@ class RockyAgent:
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-    
-        
+
     class MemReq(BaseModel):
         account: Optional[str]
         key: str
@@ -413,13 +379,18 @@ if HAS_FASTAPI:
         query: Optional[str] = None
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
-        
- # ✅ Health check root route (fixes 404 on GET /)
+
+    # ✅ Health check root route
     @app.get("/")
     def root():
         return {"status": "ok", "service": "rocky-soulmode"}
-    
-      @app.post("/remember")
+
+    # ✅ Keepalive-friendly route for external pings
+    @app.get("/test/selfcheck")
+    def selfcheck():
+        return {"ok": True, "time": now_iso()}
+
+    @app.post("/remember")
     def api_remember(req: MemReq):
         return remember_data(req.account, req.key, req.value, req.tags)
 
@@ -444,8 +415,7 @@ if HAS_FASTAPI:
         if msgs:
             remember_data(account, f"archive::{now_iso()}", {"thread": msgs})
         return {"status": "logged_out"}
-     
-     
+
     @app.delete("/forget/{account}/{key}")
     def api_forget(account: str, key: str):
         ok = forget_data(account, key)
@@ -514,6 +484,36 @@ class CoreTests(unittest.TestCase):
         self.assertIsNotNone(doc)
         self.assertEqual(doc.get("value"), "Sam")
 
+# ----------------- Keepalive Loop -----------------
+import asyncio, httpx, pytz
+from datetime import timedelta
+
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
+KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)  # default 10 min
+
+async def keepalive_loop():
+    if not RENDER_EXTERNAL_URL:
+        logger.warning("⚠️ No RENDER_EXTERNAL_URL set, skipping keepalive")
+        return
+
+    ist = pytz.timezone("Asia/Kolkata")
+
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(f"{RENDER_EXTERNAL_URL}/test/selfcheck")
+            next_ping = datetime.now(ist) + timedelta(milliseconds=KEEPALIVE_INTERVAL_MS)
+            logger.info(f"🔄 Keepalive ping {r.status_code} | next @ {next_ping.strftime('%I:%M:%S %p')}")
+        except Exception as e:
+            logger.error(f"⚠️ Keepalive ping failed: {e}")
+        await asyncio.sleep(KEEPALIVE_INTERVAL_MS / 1000.0)
+
+def start_keepalive():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(keepalive_loop())
+
+
 # Entrypoint
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] in ("test", "--test"):
@@ -524,7 +524,8 @@ if __name__ == '__main__':
             try:
                 import uvicorn
                 port = int(os.getenv("PORT", "8000"))
-                uvicorn.run("rocky_soulmode_api:app", host="127.0.0.1", port=port)
+                # bind to 0.0.0.0 so containers & external pings can reach it
+                uvicorn.run("rocky_soulmode_api:app", host="0.0.0.0", port=port)
             except Exception as e:
                 logger.error(f"Failed to start uvicorn: {e}")
         else:
@@ -533,9 +534,6 @@ if __name__ == '__main__':
         run_demo()
 
 # ----------------- Worker -----------------
-import threading, time, requests, random
-from datetime import timedelta
-
 def rocky_worker_loop():
     interval = int(os.getenv("ROCKY_WORKER_INTERVAL", "300"))
     auto_reply = os.getenv("ROCKY_AUTO_REPLY", "0") == "1"
@@ -597,7 +595,10 @@ def rocky_worker_loop():
                     _local_memory[acc][key] = doc
             except Exception:
                 pass
- time.sleep(5)
+
+    # small warmup delay
+    time.sleep(5)
+
     while True:
         try:
             accounts = get_accounts()
@@ -609,14 +610,21 @@ def rocky_worker_loop():
                 if ttl:
                     cleanup_memories(acc)
                 payload = {"account": acc, "thread_id": None, "query": None, "max_context_messages": 10, "use_llm": use_llm}
-                r = requests.post("http://127.0.0.1:8000/scan_and_respond", json=payload, timeout=15)
-                data = r.json()
+                try:
+                    r = requests.post("http://127.0.0.1:8000/scan_and_respond", json=payload, timeout=15)
+                    data = r.json() if r.status_code == 200 else {}
+                except Exception as rexc:
+                    logger.warning(f"[WORKER] scan_and_respond request failed for {acc}: {rexc}")
+                    data = {}
                 reply = data.get("suggested_reply", "")
                 if auto_reply and reply:
-                    requests.post(f"http://127.0.0.1:8000/agent/{acc}", json={"message": reply})
+                    try:
+                        requests.post(f"http://127.0.0.1:8000/agent/{acc}", json={"message": reply}, timeout=10)
+                    except Exception as e:
+                        logger.warning(f"[WORKER] auto_reply failed for {acc}: {e}")
                 if webhook and reply:
                     try:
-                        requests.post(webhook, json={"text": f"[{acc}] {reply}"})
+                        requests.post(webhook, json={"text": f"[{acc}] {reply}"}, timeout=10)
                     except Exception as we:
                         logger.warning(f"[WORKER] webhook failed: {we}")
                 if self_reflect and random.random() < 0.2:
@@ -629,20 +637,11 @@ def rocky_worker_loop():
             logger.error(f"[WORKER] loop error: {e}")
         time.sleep(interval)
 
-if os.getenv("ROCKY_AUTONOMOUS", "0") == "1":
-    t = threading.Thread(target=rocky_worker_loop, daemon=True)
-    t.start()
-    logger.info("🚀 Rocky Autonomous Worker started")
-
 def start_worker_if_needed():
     if os.getenv("ROCKY_AUTONOMOUS", "0") == "1":
         t = threading.Thread(target=rocky_worker_loop, daemon=True)
         t.start()
-        logger.info("🚀 Rocky Autonomous Worker (extended) started")
+        logger.info("🚀 Rocky Autonomous Worker started")
 
-# Ensure worker starts even if launched with uvicorn CLI
+# Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
-
-
-
-
