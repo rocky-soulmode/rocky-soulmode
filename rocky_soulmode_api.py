@@ -390,10 +390,6 @@ if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     
- # ✅ Health check root route (fixes 404 on GET /)
-    @app.get("/")
-    def root():
-        return {"status": "ok", "service": "rocky-soulmode"}
         
     class MemReq(BaseModel):
         account: Optional[str]
@@ -418,6 +414,11 @@ if HAS_FASTAPI:
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
         
+ # ✅ Health check root route (fixes 404 on GET /)
+    @app.get("/")
+    def root():
+        return {"status": "ok", "service": "rocky-soulmode"}
+    
       @app.post("/remember")
     def api_remember(req: MemReq):
         return remember_data(req.account, req.key, req.value, req.tags)
@@ -641,6 +642,7 @@ def start_worker_if_needed():
 
 # Ensure worker starts even if launched with uvicorn CLI
 start_worker_if_needed()
+
 
 
 
