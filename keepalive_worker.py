@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytz
 
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
-KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)  # 10 min
+KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)  # default 10 min
 
 async def keepalive_loop():
     if not RENDER_EXTERNAL_URL:
@@ -24,10 +24,9 @@ async def keepalive_loop():
 
 
 async def main():
-    # Start keepalive in the background
     asyncio.create_task(keepalive_loop())
 
-    # Keep process alive (replace with your actual app runner if needed)
+    # Prevent script from exiting (since uvicorn runs separately in same container)
     while True:
         await asyncio.sleep(3600)
 
