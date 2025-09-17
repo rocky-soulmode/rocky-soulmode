@@ -9,6 +9,18 @@ import threading
 import time
 import requests
 import random
+import traceback
+
+def log_firestore_error(action: str, account: str, key: str, error: Exception):
+    logger.error(
+        f"\n🚨 FIRESTORE ERROR during {action}\n"
+        f"   account = {account}\n"
+        f"   key     = {key}\n"
+        f"   type    = {type(error).__name__}\n"
+        f"   details = {str(error)}\n"
+        f"   trace   = {traceback.format_exc()}"
+    )
+
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
@@ -133,7 +145,7 @@ def remember_data(account: Optional[str], key: str, value: Any, tags: Optional[L
             firestore_client.collection("memories").document(acc).collection("items").document(safe_key).set(doc)
             logger.info(f"[FIRESTORE] Saved memory {acc}:{safe_key}")
         except Exception as e:
-            logger.warning(f"[FIRESTORE] Save failed for {acc}:{key}: {e}")
+               log_firestore_error("save", acc, key, e)
     _local_memory[acc][key] = doc
     return doc
 
@@ -146,7 +158,7 @@ def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
             if snap.exists:
                 return snap.to_dict()
         except Exception as e:
-            logger.warning(f"[FIRESTORE] Recall failed for {acc}:{key}: {e}")
+             log_firestore_error("recall", acc, key, e)
     return _local_memory.get(acc, {}).get(key)
 
 def forget_data(account: Optional[str], key: str) -> bool:
@@ -158,7 +170,7 @@ def forget_data(account: Optional[str], key: str) -> bool:
             firestore_client.collection("memories").document(acc).collection("items").document(safe_key).delete()
             removed = True
         except Exception as e:
-            logger.warning(f"[FIRESTORE] Delete failed for {acc}:{key}: {e}")
+            log_firestore_error("delete", acc, key, e)
     if _local_memory.get(acc, {}).pop(key, None) is not None:
         removed = True
     return removed
@@ -206,7 +218,7 @@ def log_thread(account: Optional[str], thread_id: str, messages: List[Dict[str, 
             })
             logger.info(f"[FIRESTORE] Saved thread {acc}:{thread_id}")
         except Exception as e:
-            logger.warning(f"[FIRESTORE] Thread log failed for {acc}:{thread_id}: {e}")
+             log_firestore_error("thread_log", acc, thread_id, e)
     _local_threads[acc][thread_id] = msgs
     return {"account": acc, "thread_id": thread_id, "messages": msgs}
 
@@ -236,7 +248,7 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                 for d in docs:
                     messages.extend(d.to_dict().get("messages", []))
             except Exception as e:
-                logger.warning(f"[SCAN] Firestore fetch failed: {e}")
+                 log_firestore_error("scan", acc, "threads", e)
     if query:
         messages = [m for m in messages if re.search(query, m.get("content", ""), re.I)]
     context = messages[-max_context:]
@@ -645,5 +657,6 @@ def start_worker_if_needed():
 
 # Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
+
 
 
