@@ -271,7 +271,7 @@ DEFAULT_PERSONALITY = {
 
 def get_personality(account: Optional[str]) -> Dict[str, Any]:
     acc = account or "global"
-    p = recall_data(acc, "__personality__")
+    p = recall_data(acc, "personality")
     if p:
         return p.get("value") if isinstance(p, dict) and "value" in p else p
     return DEFAULT_PERSONALITY
@@ -279,7 +279,7 @@ def get_personality(account: Optional[str]) -> Dict[str, Any]:
 def set_personality(account: Optional[str], personality: Dict[str, Any]) -> Dict[str, Any]:
     acc = account or "global"
     merged = {**DEFAULT_PERSONALITY, **personality}
-    remember_data(acc, "__personality__", merged)
+    remember_data(acc, "personality", merged)
     return merged
 
 # ----------------- Agent -----------------
@@ -403,7 +403,7 @@ if HAS_FASTAPI:
 
     @app.post("/login/{account}")
     def api_login(account: str):
-        if not recall_data(account, "__personality__"):
+        if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "__session__", {"status": "online", "last_seen": now_iso()})
         return {"status": "logged_in"}
@@ -605,7 +605,7 @@ def rocky_worker_loop():
             if active_accounts:
                 accounts = [a for a in accounts if a in active_accounts]
             for acc in accounts:
-                if sync_personality and not recall_data(acc, "__personality__"):
+                if sync_personality and not recall_data(acc, "personality"):
                     set_personality(acc, DEFAULT_PERSONALITY)
                 if ttl:
                     cleanup_memories(acc)
@@ -645,3 +645,4 @@ def start_worker_if_needed():
 
 # Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
+
