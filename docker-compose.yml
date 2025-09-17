@@ -18,8 +18,8 @@ services:
       ROCKY_SYNC_PERSONALITY: "1"
       ROCKY_SELF_REFLECT: "1"
       ROCKY_MEMORY_TTL: "90d"
+      RENDER_EXTERNAL_URL: "http://localhost:8000"   # <-- so keepalive can ping itself
+      KEEPALIVE_INTERVAL_MS: 600000
     restart: always
     command: >
-      uvicorn rocky_soulmode_api:app
-      --host 0.0.0.0
-      --port 8000
+      sh -c "python keepalive.py & uvicorn rocky_soulmode_api:app --host 0.0.0.0 --port 8000"
