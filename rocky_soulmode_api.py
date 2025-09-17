@@ -405,12 +405,12 @@ if HAS_FASTAPI:
     def api_login(account: str):
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
-        remember_data(account, "__session__", {"status": "online", "last_seen": now_iso()})
+        remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
         return {"status": "logged_in"}
 
     @app.post("/logout/{account}")
     def api_logout(account: str):
-        remember_data(account, "__session__", {"status": "offline", "last_seen": now_iso()})
+        remember_data(account, "session", {"status": "offline", "last_seen": now_iso()})
         msgs = fetch_thread_messages(account, f"{account}::default")
         if msgs:
             remember_data(account, f"archive::{now_iso()}", {"thread": msgs})
@@ -645,4 +645,5 @@ def start_worker_if_needed():
 
 # Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
+
 
