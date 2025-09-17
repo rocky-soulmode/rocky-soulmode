@@ -1,0 +1,15 @@
+"C:\Users\kawshik\AppData\Local\Programs\Python\Python313\python.exe" -m pip install google-cloud-firestore
+Project folder: C:\Users\kawshik\Documents\Chatgpt
+
+Python binary: C:\Users\kawshik\AppData\Local\Programs\Python\Python313\python.exe
+
+Server port you used: 8000 (adjust if you run on 8081/8090/8500)
+
+GOOGLE_APPLICATION_CREDENTIALS set to: C:\Users\kawshik\Documents\Chatgpt\chatgpt-kaapav-472214-894825d83fbb.json
+
+Your rocky_soulmode_api.py is in C:\Users\kawshik\Documents\Chatgpt
+
+cd C:\Users\kawshik\Documents\Chatgpt
+C:\Users\kawshik\AppData\Local\Programs\Python\Python313\python.exe -m uvicorn rocky_soulmode_api:app --reload --port 8000
+
+type wsl in cmd to get this inside ubuntu rocky@Kawshik:/mnt/c/Users/kawshik/Documents/Chatgpt$

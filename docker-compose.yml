@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  rocky:
+    build: .
+    container_name: rocky_soulmode
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./service-account.json:/app/service-account.json
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: "/app/service-account.json"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ROCKY_ALLOW_SERVER: "1"
+      ROCKY_AUTONOMOUS: "1"
+      ROCKY_AUTO_REPLY: "1"
+      ROCKY_SYNC_PERSONALITY: "1"
+      ROCKY_SELF_REFLECT: "1"
+      ROCKY_MEMORY_TTL: "90d"
+    restart: always
+    command: >
+      uvicorn rocky_soulmode_api:app
+      --host 0.0.0.0
+      --port 8000

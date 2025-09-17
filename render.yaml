@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: rocky-soulmode
+    env: docker
+    plan: free
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /app/service-account.json
+      - key: OPENAI_API_KEY
+        sync: false   # set in Render dashboard
+      - key: ROCKY_ALLOW_SERVER
+        value: "1"
+      - key: ROCKY_AUTONOMOUS
+        value: "1"
+      - key: ROCKY_AUTO_REPLY
+        value: "1"
+      - key: ROCKY_SYNC_PERSONALITY
+        value: "1"
+      - key: ROCKY_SELF_REFLECT
+        value: "1"
+      - key: ROCKY_MEMORY_TTL
+        value: "90d"
