@@ -400,6 +400,10 @@ if HAS_FASTAPI:
         query: Optional[str] = None
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
+        
+    @app.get("/")
+    def root():
+        return {"status": "ok", "service": "rocky-soulmode"}
 
     @app.post("/remember")
     def api_remember(req: MemReq):
@@ -579,7 +583,7 @@ def rocky_worker_loop():
                     _local_memory[acc][key] = doc
             except Exception:
                 pass
-
+ time.sleep(5)
     while True:
         try:
             accounts = get_accounts()
@@ -624,4 +628,5 @@ def start_worker_if_needed():
 
 # Ensure worker starts even if launched with uvicorn CLI
 start_worker_if_needed()
+
 
