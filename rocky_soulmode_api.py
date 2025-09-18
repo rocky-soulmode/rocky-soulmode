@@ -467,7 +467,7 @@ class RockyAgent:
                 reply = f"⚠️ Format: addlast key (error: {e})"
 
             self._log_assistant(reply)
-            return reply
+               return reply
 
         # ---------------- Manual Memory Commands ----------------
         if lm.startswith("addmem "):
@@ -580,9 +580,7 @@ class RockyAgent:
         reply = reply.upper()
 
     self._log_assistant(reply)
-    return reply
-
-
+    return reply()
        # ----------------- FastAPI -----------------
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
@@ -894,6 +892,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
