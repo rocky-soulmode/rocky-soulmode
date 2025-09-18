@@ -234,6 +234,46 @@ async function loadMemories() {
     console.warn("⚠️ Sync failed:", e);
   }
 }
+async function toggleAgent(cb) {
+  if (!currentAccount) { cb.checked = false; return; }
+
+  if (cb.checked) {
+    logAssistant("🚀 Agent activated for " + currentAccount);
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "agent activated" })
+    });
+  } else {
+    logAssistant("🛑 Agent deactivated for " + currentAccount);
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "agent deactivated" })
+    });
+  }
+}
+async function togglePersonality(cb) {
+  if (!currentAccount) { cb.checked = false; return; }
+
+  if (cb.checked) {
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "bro personality" })
+    });
+    logAssistant("⚡ Personality elevated to HIGHEST");
+    loadPersonality(); // refresh UI
+  } else {
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "bro personality reset" })
+    });
+    logAssistant("♻ Personality reset to DEFAULT");
+    loadPersonality(); // refresh UI
+  }
+}
 
 // Delete memory and refresh list
 async function deleteMemory(key) {
@@ -379,4 +419,5 @@ async function togglePersonality(cb) {
 </script>
 </body>
 </html>
+
 
