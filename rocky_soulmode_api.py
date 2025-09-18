@@ -273,6 +273,7 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
     return {"summary": summary, "suggested_reply": suggested, "scanned_count": len(messages)}
 
 # ----------------- Personality helpers -----------------
+
 DEFAULT_PERSONALITY = {
     "tone": "professional-friendly",        # warm + respectful
     "style": "proactive-solution-oriented", # anticipates user needs
@@ -284,6 +285,18 @@ DEFAULT_PERSONALITY = {
     "focus": "customer-success",            # priority: user outcomes
 }
 
+HIGHEST_PERSONALITY = {
+    "tone": "assertive-proactive",
+    "style": "executive-delegate",
+    "signature": "🚀🔥",
+    "include_oob": True,
+    "thinking": "decisive",
+    "responsibility": "max",
+    "consistency": "strict",
+    "proactivity": "always",
+    "conciseness": "high",
+}
+
 def get_personality(account: Optional[str]) -> Dict[str, Any]:
     acc = account or "global"
     p = recall_data(acc, "personality")
@@ -293,11 +306,25 @@ def get_personality(account: Optional[str]) -> Dict[str, Any]:
 
 def set_personality(account: Optional[str], personality: Dict[str, Any]) -> Dict[str, Any]:
     acc = account or "global"
-    # ✅ Always merge with DEFAULT_PERSONALITY so base traits never get lost
+    # ✅ Always merge so nothing gets lost
     merged = {**DEFAULT_PERSONALITY, **personality}
     remember_data(acc, "personality", merged)
     return merged
 
+def elevate_personality(account: Optional[str], level: str = "highest") -> Dict[str, Any]:
+    """
+    Apply a preset personality immediately and persist it.
+    level: 'highest' | 'default' (extend with more presets later)
+    """
+    if level == "highest":
+        new = {**DEFAULT_PERSONALITY, **HIGHEST_PERSONALITY}
+    elif level == "default":
+        new = DEFAULT_PERSONALITY.copy()
+    else:
+        new = DEFAULT_PERSONALITY.copy()  # fallback
+
+    set_personality(account, new)
+    return new
 
 # ----------------- Agent -----------------
 
@@ -354,92 +381,181 @@ class RockyAgent:
              "status": "failed", "time": now_iso()}
         )
 
-    def reply(self, user_message: str, auto_save: bool = True,
-              use_llm: bool = False) -> str:
-        self._log_user(user_message)
+    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
+    self._log_user(user_message)
+    msg = (user_message or "").strip()
+    lm = msg.lower()
+# 🔑 Command Aliases (no spaces)
+aliases = {
+    "addm": "addmem",
+    "fdel": "fmem",
+    "lmem": "listmem",
+    "brop": "bropersonality",
+    "brops": "bropersonalitystatus",
+    "bropr": "bropersonalityreset",
+    "bropd": "bropersonalitydefault",
+    "brofix": "bronotcorrect",
+    "rpt": "reports",
+}
 
-        # 🔑 Manual memory commands
-        if user_message.lower().startswith("addmem "):
-            try:
-                _, pair = user_message.split(" ", 1)
-                key, value = pair.split(":", 1)
-                key, value = key.strip(), value.strip()
+# Expand alias into full command
+for short, full in aliases.items():
+    if lm.startswith(short):
+        lm = lm.replace(short, full, 1)
+        msg = msg.replace(short, full, 1)
+        break
 
-                # Save main memory
-                remember_data(self.account, key, value)
+   # ---------------- Personality quick-commands ----------------
+if lm.startswith("bro personality"):
+    if "status" in lm:
+        p = get_personality(self.account)
+        reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
+        self.personality = p
+        self._log_assistant(reply)
+        return reply
 
-                # Save versioned snapshot
-                ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
-                remember_data(self.account, ts_key, value)
+    if "reset" in lm or "default" in lm:
+        new = elevate_personality(self.account, level="default")
+        self.personality = new
+        reply = "♻️ Personality reset to DEFAULT."
+        remember_data(self.account, f"personality_log::{now_iso()}", {"action": "reset", "traits": new})
+        self._log_assistant(reply)
+        return reply
 
-                # Verify
-                check = recall_data(self.account, key)
-                if check and check.get("value") == value:
-                    reply = f"✅ Bro memory saved: **{key}** = '{value}' (verified)\n🕒 Snapshot: {ts_key}"
-                else:
-                    reply = f"⚠️ Bro tried saving '{key}', but verification failed"
-            except Exception as e:
-                reply = f"⚠️ Bro use format: `addmem key: value` (error: {e})"
+    # default: set highest
+    new = elevate_personality(self.account, level="highest")
+    self.personality = new
+    reply = "⚡ Personality elevated to HIGHEST (proactive/executive). I will be more assertive, concise and action-focused."
+    remember_data(self.account, f"personality_log::{now_iso()}", {"action": "highest", "traits": new})
+    self._log_assistant(reply)
+    return reply
 
-            self._log_assistant(reply)
-            return reply
+# "bro not correct" -> quick escalation to highest
+if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
+    new = elevate_personality(self.account, level="highest")
+    self.personality = new
+    reply = "⚠️ Understood — escalating personality to HIGHEST to correct course."
+    remember_data(self.account, f"personality_log::{now_iso()}", {"action": "escalate", "traits": new})
+    self._log_assistant(reply)
+    return reply
 
-        if user_message.lower().startswith("fmem "):
-            try:
-                _, key = user_message.split(" ", 1)
-                key = key.strip()
-                before = recall_data(self.account, key)
-                ok = forget_data(self.account, key)
-                if ok:
-                    reply = f"🗑️ Bro memory removed: **{key}**"
-                    after = recall_data(self.account, key)
-                    if after:
-                        reply += " (⚠️ still exists locally, check sync)"
-                else:
-                    reply = f"⚠️ Bro no memory found for '{key}'"
-            except Exception as e:
-                reply = f"⚠️ Bro use format: `fmem key` (error: {e})"
+    # ---------------- Manual memory commands ----------------
+    if lm.startswith("addmem "):
+        try:
+            _, pair = msg.split(" ", 1)
+            key, value = pair.split(":", 1)
+            key, value = key.strip(), value.strip()
 
-            self._log_assistant(reply)
-            return reply
+            # chunk large values into 1000-char pieces
+            chunks = [value[i:i+1000] for i in range(0, len(value), 1000)]
+            remember_data(self.account, key, {"value": value, "chunks": len(chunks)})
+            for idx, chunk in enumerate(chunks):
+                remember_data(self.account, f"{key}::chunk::{idx}", chunk)
 
-        if user_message.lower().strip() == "listmem":
-            mems = export_all(self.account).get("memories", {})
-            lines = []
+            reply = f"✅ Memory saved under '{key}' ({len(chunks)} chunk(s))."
+        except Exception as e:
+            reply = f"⚠️ Use: addmem key: value  (error: {e})"
+        self._log_assistant(reply)
+        return reply
 
-            for k, v in mems.items():
-                key = k.split("::")[-1]
-                val = v.get("value")
-                if key not in ["personality"] and not key.startswith("self_reflection"):
-                    lines.append(f"- {key}: {val}")
+    if lm.startswith("fmem "):
+        try:
+            _, key = msg.split(" ", 1)
+            key = key.strip()
+            ok = forget_data(self.account, key)
 
-            personality = get_personality(self.account)
-            lines.append("\n🎭 Personality:")
-            for pk, pv in personality.items():
-                lines.append(f"  • {pk}: {pv}")
+            # remove chunks too
+            idx = 0
+            while recall_data(self.account, f"{key}::chunk::{idx}"):
+                forget_data(self.account, f"{key}::chunk::{idx}")
+                idx += 1
 
-            reflections = {k: v for k, v in mems.items() if k.startswith(f"{self.account}::self_reflection")}
-            if reflections:
-                lines.append("\n🪞 Self Reflections:")
-                for k, v in reflections.items():
-                    lines.append(f"  • {k.split('::')[-1]}: {v.get('value') or v}")
+            reply = f"🗑️ Memory removed: '{key}'" if ok else f"⚠️ No memory found for '{key}'"
+        except Exception as e:
+            reply = f"⚠️ Use: fmem key  (error: {e})"
+        self._log_assistant(reply)
+        return reply
 
-            reply = "\n".join(lines) if lines else "📭 No memories found."
-            self._log_assistant(reply)
-            return reply
-
-        if user_message.lower().strip() == "reports":
-            mems = export_all(self.account).get("memories", {})
-            reports = {k: v for k, v in mems.items() if k.startswith(f"{self.account}::report")}
-            if reports:
-                lines = ["📊 Reports:"]
-                for k, v in reports.items():
-                    lines.append(f"- {k.split('::')[-1]}: {json.dumps(v.get('value') or v, indent=2)}")
-                reply = "\n".join(lines)
+    if lm.startswith("getmem "):
+        try:
+            _, key = msg.split(" ", 1)
+            key = key.strip()
+            doc = recall_data(self.account, key)
+            if not doc:
+                reply = f"⚠️ No memory for '{key}'"
             else:
-                reply = "📭 No reports available yet."
-            self._log_assistant(reply)
-            return reply
+                # reconstruct from chunks if present
+                chunks = []
+                idx = 0
+                while True:
+                    c = recall_data(self.account, f"{key}::chunk::{idx}")
+                    if not c:
+                        break
+                    # chunk stored as doc or raw
+                    chunks.append(c.get("value") if isinstance(c, dict) and "value" in c else c)
+                    idx += 1
+                full_value = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
+                if chunks:
+                    full_value = "".join(chunks)
+                preview = full_value if len(full_value) <= 2000 else full_value[:2000] + "..."
+                reply = f"📦 {key}: {preview}"
+        except Exception as e:
+            reply = f"⚠️ Use: getmem key  (error: {e})"
+        self._log_assistant(reply)
+        return reply
+
+    if lm.strip() == "listmem":
+        # prefer Firestore-backed export if available
+        mems = export_all(self.account).get("memories", {})
+        keys = [k.split("::")[-1] for k in mems.keys() if "::chunk::" not in k]
+        if not keys:
+            reply = "📭 No memories found."
+        else:
+            reply = "🧠 Memories:\n- " + "\n- ".join(keys[:100])
+            if len(keys) > 100:
+                reply += f"\n...and {len(keys)-100} more"
+        self._log_assistant(reply)
+        return reply
+
+    if lm.strip() == "reports":
+        mems = export_all(self.account).get("memories", {})
+        reports = [v for k, v in mems.items() if k.startswith(f"{self.account}::report::") or k.startswith("report::")]
+        if not reports:
+            reply = "⚠️ No reports found."
+        else:
+            latest = reports[-1]
+            reply = f"📊 Latest report:\nTime: {latest.get('time')}\nMessages: {latest.get('total_msgs')}\nReflections: {latest.get('total_reflections')}"
+        self._log_assistant(reply)
+        return reply
+
+    # ---------------- Normal flow ----------------
+    facts = self._extract_facts(user_message)
+    if auto_save and facts:
+        self._save_facts(facts)
+
+    res = scan_and_respond(self.account, self.thread_id, user_message, max_context=10, use_llm=use_llm)
+    reply = res.get("suggested_reply") or res.get("reply") or ""
+
+    if self._check_repetition(reply):
+        reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature', '')}"
+        self._save_failure(user_message, reply)
+        if use_llm and HAS_OPENAI:
+            try:
+                prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
+                resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "You are ALADDIN, a problem-solver."}, {"role": "user", "content": prompt}], max_tokens=400, temperature=0.7)
+                reply = resp["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                reply += f"\n(LLM escalation failed: {e})"
+
+    # inject current personality styling
+    if self.personality.get("signature"):
+        reply = f"{reply} {self.personality['signature']}"
+    if self.personality.get("style") == "cofounder-high-energy":
+        reply = reply.upper()
+
+    self._log_assistant(reply)
+    return reply
+
 
         # 📌 Normal conversation pipeline
         facts = self._extract_facts(user_message)
@@ -794,6 +910,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
