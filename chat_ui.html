@@ -95,16 +95,25 @@
   </div>
 
   <div id="settings" class="tab">
-    <h2>⚙️ Settings</h2>
-    <p><strong>Account:</strong> <span id="accountLabel">Not logged in</span></p>
-    <div style="margin:15px 0;">
-      <button onclick="activateAgent()">🚀 Activate Agent</button>
-    </div>
-    <div style="margin:15px 0;">
-      <button onclick="elevatePersonality()">🎭 Elevate to Highest Personality</button>
-      <button onclick="resetPersonality()">♻ Reset Personality</button>
-    </div>
+  <h2>⚙️ Settings</h2>
+  <p><strong>Account:</strong> <span id="accountLabel">Not logged in</span></p>
+
+  <div style="margin:15px 0;">
+    <label>
+      <input type="checkbox" id="agentToggle" onchange="toggleAgent(this)">
+      🚀 Activate Agent
+    </label>
   </div>
+  
+
+  <div style="margin:15px 0;">
+    <label>
+      <input type="checkbox" id="personalityToggle" onchange="togglePersonality(this)">
+      🎭 Highest Personality
+    </label>
+  </div>
+</div>
+
 <script>
   let currentAccount = null;
   let apiBase = "http://127.0.0.1:8000"; // ⚡ adjust for Render URL
@@ -115,6 +124,8 @@
     document.querySelectorAll(".tab").forEach(tab => tab.classList.remove("active"));
     document.querySelector(`nav button[onclick="showTab('${id}')"]`).classList.add("active");
     document.getElementById(id).classList.add("active");
+      if (id === "settings") {
+    syncSettings();
   }
 
   // Login with email
@@ -158,14 +169,84 @@
     }
   }
 
-  // Fetch memories
-  async function loadMemories() {
-    if (!currentAccount) return;
+    // Fetch and display memories with delete option
+async function loadMemories() {
+  if (!currentAccount) return;
+  try {
     const r = await fetch(`${apiBase}/export/${currentAccount}`);
     const data = await r.json();
-    document.getElementById("memoriesList").innerText =
-      JSON.stringify(data.memories, null, 2);
+    const mems = data.memories || {};
+
+    const keys = Object.keys(mems).filter(k => !k.includes("::chunk::"));
+    const container = document.getElementById("memoriesList");
+    container.innerHTML = ""; // clear old list
+
+    if (!keys.length) {
+      container.innerText = "📭 No memories found.";
+      return;
+    }
+
+    let html = "<h3>🧠 Saved Memories</h3><ul style='list-style:none;padding:0;'>";
+    for (const k of keys) {
+      const m = mems[k];
+      let val = (m.value !== undefined ? m.value : m);
+      if (typeof val === "object") val = JSON.stringify(val);
+      if (val.length > 200) val = val.substring(0, 200) + "...";
+
+      const keyName = m.key || k.split("::").pop();
+      html += `
+        <li style="margin:8px 0;padding:8px;border:1px solid #ccc;border-radius:6px;background:#fafafa;">
+          <strong>🔑 ${keyName}</strong><br>
+          <span style="font-size:13px;color:#444;">${val}</span><br>
+          <button onclick="deleteMemory('${keyName}')" style="margin-top:6px;background:#e74c3c;">🗑 Delete</button>
+        </li>
+      `;
+    }
+    html += "</ul>";
+    container.innerHTML = html;
+  } catch (e) {
+    document.getElementById("memoriesList").innerText = "⚠️ Failed to load memories.";
   }
+}
+
+    async function syncSettings() {
+  if (!currentAccount) return;
+
+  try {
+    // 1️⃣ Personality state
+    const r = await fetch(`${apiBase}/recall/${currentAccount}/personality`);
+    if (r.ok) {
+      const data = await r.json();
+      const val = data.value || data;
+      // detect if HIGHEST personality is active
+      const highest = val.tone === "assertive-proactive" && val.style === "executive-delegate";
+      document.getElementById("personalityToggle").checked = highest;
+    }
+
+    // 2️⃣ Agent state (we save agent session status in memory)
+    const r2 = await fetch(`${apiBase}/recall/${currentAccount}/session`);
+    if (r2.ok) {
+      const data2 = await r2.json();
+      const active = data2.value?.status === "online";
+      document.getElementById("agentToggle").checked = active;
+    }
+  } catch (e) {
+    console.warn("⚠️ Sync failed:", e);
+  }
+}
+
+// Delete memory and refresh list
+async function deleteMemory(key) {
+  if (!currentAccount) return;
+  if (!confirm(`Delete memory '${key}'?`)) return;
+  try {
+    await fetch(`${apiBase}/forget/${currentAccount}/${key}`, { method: "DELETE" });
+    logAssistant(`🗑 Deleted memory '${key}'`);
+    loadMemories();
+  } catch (e) {
+    logAssistant(`⚠️ Failed to delete memory '${key}'`);
+  }
+}
 
   // Fetch reports
   async function loadReports() {
@@ -211,7 +292,7 @@
   }
 
   // Reset personality
-  async function resetPersonality() {
+  async function () {
     if (!currentAccount) return;
     try {
       await fetch(`${apiBase}/agent/${currentAccount}`, {
@@ -225,6 +306,48 @@
       logAssistant("⚠️ Personality reset failed");
     }
   }
+
+  // Agent toggle
+async function toggleAgent(cb) {
+  if (!currentAccount) { cb.checked = false; return; }
+  if (cb.checked) {
+    logAssistant("🚀 Agent activated for " + currentAccount);
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "agent activated" })
+    });
+  } else {
+    logAssistant("🛑 Agent deactivated for " + currentAccount);
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "agent deactivated" })
+    });
+  }
+}
+
+// Personality toggle
+async function togglePersonality(cb) {
+  if (!currentAccount) { cb.checked = false; return; }
+  if (cb.checked) {
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "bro personality" })
+    });
+    logAssistant("⚡ Personality elevated to HIGHEST");
+    loadPersonality();
+  } else {
+    await fetch(`${apiBase}/agent/${currentAccount}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "bro personality reset" })
+    });
+    logAssistant("♻ Personality reset to DEFAULT");
+    loadPersonality();
+  }
+}
 
   // --- Helpers to log messages in Chat ---
   function logUser(msg) {
@@ -256,3 +379,4 @@
 </script>
 </body>
 </html>
+
