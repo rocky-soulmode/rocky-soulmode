@@ -561,7 +561,7 @@ class RockyAgent:
         reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature', '')}"
         self._save_failure(user_message, reply)
         if use_llm and HAS_OPENAI:
-           try:
+try:
     prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
@@ -893,6 +893,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
