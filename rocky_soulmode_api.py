@@ -468,7 +468,6 @@ class RockyAgent:
 
             self._log_assistant(reply)
                return reply
-
         # ---------------- Manual Memory Commands ----------------
         if lm.startswith("addmem "):
             try:
@@ -552,42 +551,7 @@ class RockyAgent:
                 reply = f"📊 Latest report:\nTime: {latest.get('time')}\nMessages: {latest.get('total_msgs')}\nReflections: {latest.get('total_reflections')}"
             self._log_assistant(reply)
             return reply
-
-
-    # ---------------- Normal flow ----------------
-    facts = self._extract_facts(user_message)
-    if auto_save and facts:
-        self._save_facts(facts)
-
-    res = scan_and_respond(self.account, self.thread_id, user_message, max_context=10, use_llm=use_llm)
-    reply = res.get("suggested_reply") or res.get("reply") or ""
-
-    if self._check_repetition(reply):
-        reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature', '')}"
-        self._save_failure(user_message, reply)
-        if use_llm and HAS_OPENAI:
-            try:
-               prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
-                    resp = openai.ChatCompletion.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are ALADDIN, a problem-solver."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        max_tokens=400,
-                        temperature=0.7
-                    )
-                    reply = resp["choices"][0]["message"]["content"].strip()
-                except Exception as e:
-                    reply += f"\n(LLM escalation failed: {e})"
-
-        if self.personality.get("signature"):
-            reply = f"{reply} {self.personality['signature']}"
-        if self.personality.get("style") == "cofounder-high-energy":
-            reply = reply.upper()
-
-        self._log_assistant(reply)
-        return reply
+   
        # ----------------- FastAPI -----------------
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
@@ -899,6 +863,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
