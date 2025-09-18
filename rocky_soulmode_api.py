@@ -657,6 +657,13 @@ def start_worker_if_needed():
 
 # Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
+# Start keepalive loop in background thread
+if RENDER_EXTERNAL_URL:
+    threading.Thread(target=start_keepalive, daemon=True).start()
+    logger.info("🚀 Keepalive loop started")
+else:
+    logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
