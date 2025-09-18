@@ -440,6 +440,40 @@ if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
     return reply
 
     # ---------------- Manual memory commands ----------------
+    # ---------------- Save Last Assistant Reply ----------------
+if lm.startswith("addlast ") or lm.startswith("alast "):
+    try:
+        _, key = msg.split(" ", 1)
+        key = key.strip()
+
+        # Fetch last assistant reply
+        msgs = fetch_thread_messages(self.account, self.thread_id)
+        last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
+
+        if not last_assistant:
+            reply = "⚠️ No assistant reply found to save."
+        else:
+            value = last_assistant["content"]
+
+            # Save main memory
+            remember_data(self.account, key, value)
+
+            # Save versioned snapshot
+            ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
+            remember_data(self.account, ts_key, value)
+
+            # Verify
+            check = recall_data(self.account, key)
+            if check and check.get("value") == value:
+                reply = f"✅ Bro last reply saved under '{key}' (verified)\n🕒 Snapshot: {ts_key}"
+            else:
+                reply = f"⚠️ Tried saving last reply as '{key}', but verification failed"
+    except Exception as e:
+        reply = f"⚠️ Format: addlast key (error: {e})"
+
+    self._log_assistant(reply)
+    return reply
+
     if lm.startswith("addmem "):
         try:
             _, pair = msg.split(" ", 1)
@@ -910,6 +944,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
