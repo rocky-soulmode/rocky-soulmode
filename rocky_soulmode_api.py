@@ -411,8 +411,7 @@ class RockyAgent:
                 reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
                 self.personality = p
                 self._log_assistant(reply)
-                return reply
-
+    return reply 
             if "reset" in lm or "default" in lm:
                 new = elevate_personality(self.account, level="default")
                 self.personality = new
@@ -439,8 +438,7 @@ class RockyAgent:
                           {"action": "escalate", "traits": new})
             self._log_assistant(reply)
             return reply
-
-        # ---------------- Save Last Assistant Reply ----------------
+# ---------------- Save Last Assistant Reply ----------------
         if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
             try:
                 _, key = msg.split(" ", 1)
@@ -468,7 +466,7 @@ class RockyAgent:
 
             self._log_assistant(reply)
                return reply
-        # ---------------- Manual Memory Commands ----------------
+#---------------- Manual Memory Commands ----------------
         if lm.startswith("addmem "):
             try:
                 _, pair = msg.split(" ", 1)
@@ -896,6 +894,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
