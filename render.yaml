@@ -6,6 +6,8 @@ services:
     dockerContext: .
     dockerfilePath: ./Dockerfile
     autoDeploy: true
+     healthCheckPath: /test/selfcheck
+    healthCheckInterval: 600   # every 10 minutes
     envVars:
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /app/service-account.json
@@ -23,3 +25,4 @@ services:
         value: "1"
       - key: ROCKY_MEMORY_TTL
         value: "90d"
+
