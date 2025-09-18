@@ -560,7 +560,7 @@ class RockyAgent:
     if self._check_repetition(reply):
         reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature', '')}"
         self._save_failure(user_message, reply)
-        if use_llm and HAS_OPENAI:
+    if use_llm and HAS_OPENAI:
         try:
             prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
             resp = openai.ChatCompletion.create(
@@ -573,7 +573,7 @@ class RockyAgent:
         temperature=0.7
     )
     reply = resp["choices"][0]["message"]["content"].strip()
-    except Exception as e:   # FIX: align with try
+  except Exception as e:   # FIX: align with try
     reply += f"\n(LLM escalation failed: {e})"
         if self.personality.get("signature"):
             reply = f"{reply} {self.personality['signature']}"
@@ -893,6 +893,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
