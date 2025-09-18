@@ -411,7 +411,7 @@ class RockyAgent:
                 reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
                 self.personality = p
                 self._log_assistant(reply)
-    return reply 
+                return reply 
             if "reset" in lm or "default" in lm:
                 new = elevate_personality(self.account, level="default")
                 self.personality = new
@@ -465,7 +465,7 @@ class RockyAgent:
                 reply = f"⚠️ Format: addlast key (error: {e})"
 
             self._log_assistant(reply)
-               return reply
+            return reply
 #---------------- Manual Memory Commands ----------------
         if lm.startswith("addmem "):
             try:
@@ -561,21 +561,20 @@ class RockyAgent:
         reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature', '')}"
         self._save_failure(user_message, reply)
         if use_llm and HAS_OPENAI:
-            try:
-               prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
-                    resp = openai.ChatCompletion.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are ALADDIN, a problem-solver."},
-                            {"role": "user", "content": prompt},
-                        ],
-                        max_tokens=400,
-                        temperature=0.7
-                    )
-                    reply = resp["choices"][0]["message"]["content"].strip()
-                except Exception as e:
-                    reply += f"\n(LLM escalation failed: {e})"
-
+           try:
+    prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are ALADDIN, a problem-solver."},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=400,
+        temperature=0.7
+    )
+    reply = resp["choices"][0]["message"]["content"].strip()
+except Exception as e:   # FIX: align with try
+    reply += f"\n(LLM escalation failed: {e})"
         if self.personality.get("signature"):
             reply = f"{reply} {self.personality['signature']}"
         if self.personality.get("style") == "cofounder-high-energy":
@@ -894,6 +893,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
