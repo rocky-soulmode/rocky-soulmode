@@ -326,10 +326,8 @@ def elevate_personality(account: Optional[str], level: str = "highest") -> Dict[
     set_personality(account, new)
     return new
 
-# ----------------- Agent -----------------
-
-
 class RockyAgent:
+    # ----------------- Fact Patterns -----------------
     FACT_PATTERNS = {
         "name": re.compile(r"\bmy name is ([A-Z][a-zA-Z\-']+)", re.I),
         "birthday": re.compile(r"\b(my birthday is|born on|my bday is)\s*(on\s*)?([A-Za-z0-9 ,]+)", re.I),
@@ -344,6 +342,7 @@ class RockyAgent:
         self.thread_id = thread_id or f"{account}::default"
         self.personality = get_personality(account)
 
+    # ----------------- Helpers -----------------
     def _log_user(self, text: str):
         log_thread(self.account, self.thread_id,
                    [{"role": "user", "content": text, "timestamp": now_iso()}])
@@ -381,72 +380,65 @@ class RockyAgent:
              "status": "failed", "time": now_iso()}
         )
 
-    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
-    self._log_user(user_message)
-    msg = (user_message or "").strip()
-    lm = msg.lower()
-    
-# 🔑 Command Aliases (no spaces)
-aliases = {
-    "addm": "addmem",
-    "fdel": "fmem",
-    "lmem": "listmem",
-    "brop": "bropersonality",
-    "brops": "bropersonalitystatus",
-    "bropr": "bropersonalityreset",
-    "bropd": "bropersonalitydefault",
-    "brofix": "bronotcorrect",
-    "rpt": "reports",
-}
-
-# Expand alias into full command
-for short, full in aliases.items():
-    if lm.startswith(short):
-        lm = lm.replace(short, full, 1)
-        msg = msg.replace(short, full, 1)
-        break
-
-   # ---------------- Personality quick-commands ----------------
-if lm.startswith("bro personality"):
-    if "status" in lm:
-        p = get_personality(self.account)
-        reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
-        self.personality = p
-        self._log_assistant(reply)
-        return reply
-
-    if "reset" in lm or "default" in lm:
-        new = elevate_personality(self.account, level="default")
-        self.personality = new
-        reply = "♻️ Personality reset to DEFAULT."
-        remember_data(self.account, f"personality_log::{now_iso()}", {"action": "reset", "traits": new})
-        self._log_assistant(reply)
-        return reply
-
-    # default: set highest
-    new = elevate_personality(self.account, level="highest")
-    self.personality = new
-    reply = "⚡ Personality elevated to HIGHEST (proactive/executive). I will be more assertive, concise and action-focused."
-    remember_data(self.account, f"personality_log::{now_iso()}", {"action": "highest", "traits": new})
-    self._log_assistant(reply)
-    return reply
-
-# "bro not correct" -> quick escalation to highest
-if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
-    new = elevate_personality(self.account, level="highest")
-    self.personality = new
-    reply = "⚠️ Understood — escalating personality to HIGHEST to correct course."
-    remember_data(self.account, f"personality_log::{now_iso()}", {"action": "escalate", "traits": new})
-    self._log_assistant(reply)
-    return reply
-
-    # ---------------- Manual memory commands ----------------
-   # ---------------- Save Last Assistant Reply ----------------
-class RockyAgent:
+    # ----------------- Core Reply -----------------
     def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
         self._log_user(user_message)
         msg = (user_message or "").strip()
         lm = msg.lower()
+
+        # 🔑 Aliases
+        aliases = {
+            "addm": "addmem",
+            "fdel": "fmem",
+            "lmem": "listmem",
+            "brop": "bropersonality",
+            "brops": "bropersonalitystatus",
+            "bropr": "bropersonalityreset",
+            "bropd": "bropersonalitydefault",
+            "brofix": "bronotcorrect",
+            "rpt": "reports",
+        }
+        for short, full in aliases.items():
+            if lm.startswith(short):
+                lm = lm.replace(short, full, 1)
+                msg = msg.replace(short, full, 1)
+                break
+
+        # ---------------- Personality Commands ----------------
+        if lm.startswith("bro personality"):
+            if "status" in lm:
+                p = get_personality(self.account)
+                reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
+                self.personality = p
+                self._log_assistant(reply)
+                return reply
+
+            if "reset" in lm or "default" in lm:
+                new = elevate_personality(self.account, level="default")
+                self.personality = new
+                reply = "♻️ Personality reset to DEFAULT."
+                remember_data(self.account, f"personality_log::{now_iso()}",
+                              {"action": "reset", "traits": new})
+                self._log_assistant(reply)
+                return reply
+
+            # default → highest
+            new = elevate_personality(self.account, level="highest")
+            self.personality = new
+            reply = "⚡ Personality elevated to HIGHEST (proactive/executive). I will be more assertive, concise and action-focused."
+            remember_data(self.account, f"personality_log::{now_iso()}",
+                          {"action": "highest", "traits": new})
+            self._log_assistant(reply)
+            return reply
+
+        if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
+            new = elevate_personality(self.account, level="highest")
+            self.personality = new
+            reply = "⚠️ Understood — escalating personality to HIGHEST to correct course."
+            remember_data(self.account, f"personality_log::{now_iso()}",
+                          {"action": "escalate", "traits": new})
+            self._log_assistant(reply)
+            return reply
 
         # ---------------- Save Last Assistant Reply ----------------
         if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
@@ -454,7 +446,6 @@ class RockyAgent:
                 _, key = msg.split(" ", 1)
                 key = key.strip()
 
-                # Fetch last assistant reply
                 msgs = fetch_thread_messages(self.account, self.thread_id)
                 last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
 
@@ -463,14 +454,10 @@ class RockyAgent:
                 else:
                     value = last_assistant["content"]
 
-                    # Save main memory
                     remember_data(self.account, key, value)
-
-                    # Save versioned snapshot
                     ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
                     remember_data(self.account, ts_key, value)
 
-                    # Verify
                     check = recall_data(self.account, key)
                     if check and check.get("value") == value:
                         reply = f"✅ Bro last reply saved under '{key}' (verified)\n🕒 Snapshot: {ts_key}"
@@ -482,94 +469,90 @@ class RockyAgent:
             self._log_assistant(reply)
             return reply
 
+        # ---------------- Manual Memory Commands ----------------
+        if lm.startswith("addmem "):
+            try:
+                _, pair = msg.split(" ", 1)
+                key, value = pair.split(":", 1)
+                key, value = key.strip(), value.strip()
 
-    if lm.startswith("addmem "):
-        try:
-            _, pair = msg.split(" ", 1)
-            key, value = pair.split(":", 1)
-            key, value = key.strip(), value.strip()
+                chunks = [value[i:i+1000] for i in range(0, len(value), 1000)]
+                remember_data(self.account, key, {"value": value, "chunks": len(chunks)})
+                for idx, chunk in enumerate(chunks):
+                    remember_data(self.account, f"{key}::chunk::{idx}", chunk)
 
-            # chunk large values into 1000-char pieces
-            chunks = [value[i:i+1000] for i in range(0, len(value), 1000)]
-            remember_data(self.account, key, {"value": value, "chunks": len(chunks)})
-            for idx, chunk in enumerate(chunks):
-                remember_data(self.account, f"{key}::chunk::{idx}", chunk)
+                reply = f"✅ Memory saved under '{key}' ({len(chunks)} chunk(s))."
+            except Exception as e:
+                reply = f"⚠️ Use: addmem key: value  (error: {e})"
+            self._log_assistant(reply)
+            return reply
 
-            reply = f"✅ Memory saved under '{key}' ({len(chunks)} chunk(s))."
-        except Exception as e:
-            reply = f"⚠️ Use: addmem key: value  (error: {e})"
-        self._log_assistant(reply)
-        return reply
+        if lm.startswith("fmem "):
+            try:
+                _, key = msg.split(" ", 1)
+                key = key.strip()
+                ok = forget_data(self.account, key)
 
-    if lm.startswith("fmem "):
-        try:
-            _, key = msg.split(" ", 1)
-            key = key.strip()
-            ok = forget_data(self.account, key)
-
-            # remove chunks too
-            idx = 0
-            while recall_data(self.account, f"{key}::chunk::{idx}"):
-                forget_data(self.account, f"{key}::chunk::{idx}")
-                idx += 1
-
-            reply = f"🗑️ Memory removed: '{key}'" if ok else f"⚠️ No memory found for '{key}'"
-        except Exception as e:
-            reply = f"⚠️ Use: fmem key  (error: {e})"
-        self._log_assistant(reply)
-        return reply
-
-    if lm.startswith("getmem "):
-        try:
-            _, key = msg.split(" ", 1)
-            key = key.strip()
-            doc = recall_data(self.account, key)
-            if not doc:
-                reply = f"⚠️ No memory for '{key}'"
-            else:
-                # reconstruct from chunks if present
-                chunks = []
                 idx = 0
-                while True:
-                    c = recall_data(self.account, f"{key}::chunk::{idx}")
-                    if not c:
-                        break
-                    # chunk stored as doc or raw
-                    chunks.append(c.get("value") if isinstance(c, dict) and "value" in c else c)
+                while recall_data(self.account, f"{key}::chunk::{idx}"):
+                    forget_data(self.account, f"{key}::chunk::{idx}")
                     idx += 1
-                full_value = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
-                if chunks:
-                    full_value = "".join(chunks)
-                preview = full_value if len(full_value) <= 2000 else full_value[:2000] + "..."
-                reply = f"📦 {key}: {preview}"
-        except Exception as e:
-            reply = f"⚠️ Use: getmem key  (error: {e})"
-        self._log_assistant(reply)
-        return reply
 
-    if lm.strip() == "listmem":
-        # prefer Firestore-backed export if available
-        mems = export_all(self.account).get("memories", {})
-        keys = [k.split("::")[-1] for k in mems.keys() if "::chunk::" not in k]
-        if not keys:
-            reply = "📭 No memories found."
-        else:
-            reply = "🧠 Memories:\n- " + "\n- ".join(keys[:100])
-            if len(keys) > 100:
-                reply += f"\n...and {len(keys)-100} more"
-        self._log_assistant(reply)
-        return reply
+                reply = f"🗑️ Memory removed: '{key}'" if ok else f"⚠️ No memory found for '{key}'"
+            except Exception as e:
+                reply = f"⚠️ Use: fmem key  (error: {e})"
+            self._log_assistant(reply)
+            return reply
 
-    if lm.strip() == "reports":
-        mems = export_all(self.account).get("memories", {})
-        reports = [v for k, v in mems.items() if k.startswith(f"{self.account}::report::") or k.startswith("report::")]
-        if not reports:
-            reply = "⚠️ No reports found."
-        else:
-            latest = reports[-1]
-            reply = f"📊 Latest report:\nTime: {latest.get('time')}\nMessages: {latest.get('total_msgs')}\nReflections: {latest.get('total_reflections')}"
-        self._log_assistant(reply)
-        return reply
+        if lm.startswith("getmem "):
+            try:
+                _, key = msg.split(" ", 1)
+                key = key.strip()
+                doc = recall_data(self.account, key)
+                if not doc:
+                    reply = f"⚠️ No memory for '{key}'"
+                else:
+                    chunks = []
+                    idx = 0
+                    while True:
+                        c = recall_data(self.account, f"{key}::chunk::{idx}")
+                        if not c:
+                            break
+                        chunks.append(c.get("value") if isinstance(c, dict) and "value" in c else c)
+                        idx += 1
+                    full_value = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
+                    if chunks:
+                        full_value = "".join(chunks)
+                    preview = full_value if len(full_value) <= 2000 else full_value[:2000] + "..."
+                    reply = f"📦 {key}: {preview}"
+            except Exception as e:
+                reply = f"⚠️ Use: getmem key  (error: {e})"
+            self._log_assistant(reply)
+            return reply
+
+        if lm.strip() == "listmem":
+            mems = export_all(self.account).get("memories", {})
+            keys = [k.split("::")[-1] for k in mems.keys() if "::chunk::" not in k]
+            if not keys:
+                reply = "📭 No memories found."
+            else:
+                reply = "🧠 Memories:\n- " + "\n- ".join(keys[:100])
+                if len(keys) > 100:
+                    reply += f"\n...and {len(keys)-100} more"
+            self._log_assistant(reply)
+            return reply
+
+        if lm.strip() == "reports":
+            mems = export_all(self.account).get("memories", {})
+            reports = [v for k, v in mems.items() if k.startswith(f"{self.account}::report::") or k.startswith("report::")]
+            if not reports:
+                reply = "⚠️ No reports found."
+            else:
+                latest = reports[-1]
+                reply = f"📊 Latest report:\nTime: {latest.get('time')}\nMessages: {latest.get('total_msgs')}\nReflections: {latest.get('total_reflections')}"
+            self._log_assistant(reply)
+            return reply
+
 
     # ---------------- Normal flow ----------------
     facts = self._extract_facts(user_message)
@@ -953,6 +936,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
