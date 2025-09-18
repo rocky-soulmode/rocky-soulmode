@@ -274,11 +274,14 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
 
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
-    "tone": "consistent",
-    "style": "cofounder-high-energy",
-    "signature": "💎🔥",
-    "include_oob": True,
-    "thinking": "out-of-box"
+    "tone": "professional-friendly",        # warm + respectful
+    "style": "proactive-solution-oriented", # anticipates user needs
+    "signature": "⚡💎",                     # strong but not too flashy
+    "responsibility": "high",               # always follow through
+    "consistency": "stable",                # same behavior every time
+    "adaptability": "learning",             # grows with new info
+    "thinking": "strategic-creative",       # balance logic + creativity
+    "focus": "customer-success",            # priority: user outcomes
 }
 
 def get_personality(account: Optional[str]) -> Dict[str, Any]:
@@ -290,11 +293,15 @@ def get_personality(account: Optional[str]) -> Dict[str, Any]:
 
 def set_personality(account: Optional[str], personality: Dict[str, Any]) -> Dict[str, Any]:
     acc = account or "global"
+    # ✅ Always merge with DEFAULT_PERSONALITY so base traits never get lost
     merged = {**DEFAULT_PERSONALITY, **personality}
     remember_data(acc, "personality", merged)
     return merged
 
+
 # ----------------- Agent -----------------
+
+
 class RockyAgent:
     FACT_PATTERNS = {
         "name": re.compile(r"\bmy name is ([A-Z][a-zA-Z\-']+)", re.I),
@@ -311,10 +318,12 @@ class RockyAgent:
         self.personality = get_personality(account)
 
     def _log_user(self, text: str):
-        log_thread(self.account, self.thread_id, [{"role": "user", "content": text, "timestamp": now_iso()}])
+        log_thread(self.account, self.thread_id,
+                   [{"role": "user", "content": text, "timestamp": now_iso()}])
 
     def _log_assistant(self, text: str):
-        log_thread(self.account, self.thread_id, [{"role": "assistant", "content": text, "timestamp": now_iso()}])
+        log_thread(self.account, self.thread_id,
+                   [{"role": "assistant", "content": text, "timestamp": now_iso()}])
 
     def _extract_facts(self, text: str) -> Dict[str, str]:
         facts: Dict[str, str] = {}
@@ -338,29 +347,139 @@ class RockyAgent:
         return any(m["role"] == "assistant" and m["content"] == reply for m in msgs)
 
     def _save_failure(self, query: str, attempt: str):
-        remember_data(self.account, f"failure::{hash(query+attempt)}", {"query": query, "attempt": attempt, "status": "failed", "time": now_iso()})
+        remember_data(
+            self.account,
+            f"failure::{hash(query+attempt)}",
+            {"query": query, "attempt": attempt,
+             "status": "failed", "time": now_iso()}
+        )
 
-    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
+    def reply(self, user_message: str, auto_save: bool = True,
+              use_llm: bool = False) -> str:
         self._log_user(user_message)
+
+        # 🔑 Manual memory commands
+        if user_message.lower().startswith("addmem "):
+            try:
+                _, pair = user_message.split(" ", 1)
+                key, value = pair.split(":", 1)
+                key, value = key.strip(), value.strip()
+
+                # Save main memory
+                remember_data(self.account, key, value)
+
+                # Save versioned snapshot
+                ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
+                remember_data(self.account, ts_key, value)
+
+                # Verify
+                check = recall_data(self.account, key)
+                if check and check.get("value") == value:
+                    reply = f"✅ Bro memory saved: **{key}** = '{value}' (verified)\n🕒 Snapshot: {ts_key}"
+                else:
+                    reply = f"⚠️ Bro tried saving '{key}', but verification failed"
+            except Exception as e:
+                reply = f"⚠️ Bro use format: `addmem key: value` (error: {e})"
+
+            self._log_assistant(reply)
+            return reply
+
+        if user_message.lower().startswith("fmem "):
+            try:
+                _, key = user_message.split(" ", 1)
+                key = key.strip()
+                before = recall_data(self.account, key)
+                ok = forget_data(self.account, key)
+                if ok:
+                    reply = f"🗑️ Bro memory removed: **{key}**"
+                    after = recall_data(self.account, key)
+                    if after:
+                        reply += " (⚠️ still exists locally, check sync)"
+                else:
+                    reply = f"⚠️ Bro no memory found for '{key}'"
+            except Exception as e:
+                reply = f"⚠️ Bro use format: `fmem key` (error: {e})"
+
+            self._log_assistant(reply)
+            return reply
+
+        if user_message.lower().strip() == "listmem":
+            mems = export_all(self.account).get("memories", {})
+            lines = []
+
+            for k, v in mems.items():
+                key = k.split("::")[-1]
+                val = v.get("value")
+                if key not in ["personality"] and not key.startswith("self_reflection"):
+                    lines.append(f"- {key}: {val}")
+
+            personality = get_personality(self.account)
+            lines.append("\n🎭 Personality:")
+            for pk, pv in personality.items():
+                lines.append(f"  • {pk}: {pv}")
+
+            reflections = {k: v for k, v in mems.items() if k.startswith(f"{self.account}::self_reflection")}
+            if reflections:
+                lines.append("\n🪞 Self Reflections:")
+                for k, v in reflections.items():
+                    lines.append(f"  • {k.split('::')[-1]}: {v.get('value') or v}")
+
+            reply = "\n".join(lines) if lines else "📭 No memories found."
+            self._log_assistant(reply)
+            return reply
+
+        if user_message.lower().strip() == "reports":
+            mems = export_all(self.account).get("memories", {})
+            reports = {k: v for k, v in mems.items() if k.startswith(f"{self.account}::report")}
+            if reports:
+                lines = ["📊 Reports:"]
+                for k, v in reports.items():
+                    lines.append(f"- {k.split('::')[-1]}: {json.dumps(v.get('value') or v, indent=2)}")
+                reply = "\n".join(lines)
+            else:
+                reply = "📭 No reports available yet."
+            self._log_assistant(reply)
+            return reply
+
+        # 📌 Normal conversation pipeline
         facts = self._extract_facts(user_message)
         if auto_save and facts:
             self._save_facts(facts)
-        res = scan_and_respond(self.account, self.thread_id, user_message, max_context=10, use_llm=False)
+
+        res = scan_and_respond(
+            self.account, self.thread_id, user_message,
+            max_context=10, use_llm=False
+        )
         reply = res.get("suggested_reply") or res.get("reply") or ""
+
         if self._check_repetition(reply):
             reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality['signature']}"
             self._save_failure(user_message, reply)
             if use_llm and HAS_OPENAI:
                 try:
-                    prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
-                    resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "You are ALADDIN, a problem-solver."}, {"role": "user", "content": prompt}], max_tokens=400, temperature=0.7)
+                    prompt = (
+                        f"User asked:\n{user_message}\n"
+                        f"My previous attempts failed. Suggest a new approach."
+                    )
+                    resp = openai.ChatCompletion.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system",
+                             "content": "You are ALADDIN, a problem-solver."},
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_tokens=400,
+                        temperature=0.7
+                    )
                     reply = resp["choices"][0]["message"]["content"].strip()
                 except Exception as e:
                     reply += f"\n(LLM escalation failed: {e})"
+
         if self.personality.get("signature"):
             reply = f"{reply} {self.personality['signature']}"
         if self.personality.get("style") == "cofounder-high-energy":
             reply = reply.upper()
+
         self._log_assistant(reply)
         return reply
 
@@ -648,6 +767,18 @@ def rocky_worker_loop():
         except Exception as e:
             logger.error(f"[WORKER] loop error: {e}")
         time.sleep(interval)
+# 📊 Save daily/hourly reports        
+def save_report(acc: str, period: str):
+    msgs = fetch_thread_messages(acc, f"{acc}::default")
+    reflections = [m for m in msgs if "REFLECTION" in m.get("content", "")]
+    report = {
+        "time": now_iso(),
+        "total_msgs": len(msgs),
+        "total_reflections": len(reflections),
+        "highlights": reflections[-3:],  # last few
+    }
+    remember_data(acc, f"report::{period}::{now_iso()}", report)
+    logger.info(f"[REPORT] Saved {period} report for {acc}")
 
 def start_worker_if_needed():
     if os.getenv("ROCKY_AUTONOMOUS", "0") == "1":
@@ -663,6 +794,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
