@@ -440,8 +440,8 @@ if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
     return reply
 
     # ---------------- Manual memory commands ----------------
-    # ---------------- Save Last Assistant Reply ----------------
-if lm.startswith("addlast ") or lm.startswith("alast "):
+   # ---------------- Save Last Assistant Reply ----------------
+if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
     try:
         _, key = msg.split(" ", 1)
         key = key.strip()
@@ -473,6 +473,7 @@ if lm.startswith("addlast ") or lm.startswith("alast "):
 
     self._log_assistant(reply)
     return reply
+
 
     if lm.startswith("addmem "):
         try:
@@ -944,6 +945,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
