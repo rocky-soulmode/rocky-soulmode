@@ -385,6 +385,7 @@ class RockyAgent:
     self._log_user(user_message)
     msg = (user_message or "").strip()
     lm = msg.lower()
+    
 # 🔑 Command Aliases (no spaces)
 aliases = {
     "addm": "addmem",
@@ -441,38 +442,45 @@ if lm.startswith("bro not correct") or ("bro" in lm and "not correct" in lm):
 
     # ---------------- Manual memory commands ----------------
    # ---------------- Save Last Assistant Reply ----------------
-if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
-    try:
-        _, key = msg.split(" ", 1)
-        key = key.strip()
+class RockyAgent:
+    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
+        self._log_user(user_message)
+        msg = (user_message or "").strip()
+        lm = msg.lower()
 
-        # Fetch last assistant reply
-        msgs = fetch_thread_messages(self.account, self.thread_id)
-        last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
+        # ---------------- Save Last Assistant Reply ----------------
+        if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
+            try:
+                _, key = msg.split(" ", 1)
+                key = key.strip()
 
-        if not last_assistant:
-            reply = "⚠️ No assistant reply found to save."
-        else:
-            value = last_assistant["content"]
+                # Fetch last assistant reply
+                msgs = fetch_thread_messages(self.account, self.thread_id)
+                last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
 
-            # Save main memory
-            remember_data(self.account, key, value)
+                if not last_assistant:
+                    reply = "⚠️ No assistant reply found to save."
+                else:
+                    value = last_assistant["content"]
 
-            # Save versioned snapshot
-            ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
-            remember_data(self.account, ts_key, value)
+                    # Save main memory
+                    remember_data(self.account, key, value)
 
-            # Verify
-            check = recall_data(self.account, key)
-            if check and check.get("value") == value:
-                reply = f"✅ Bro last reply saved under '{key}' (verified)\n🕒 Snapshot: {ts_key}"
-            else:
-                reply = f"⚠️ Tried saving last reply as '{key}', but verification failed"
-    except Exception as e:
-        reply = f"⚠️ Format: addlast key (error: {e})"
+                    # Save versioned snapshot
+                    ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
+                    remember_data(self.account, ts_key, value)
 
-    self._log_assistant(reply)
-    return reply
+                    # Verify
+                    check = recall_data(self.account, key)
+                    if check and check.get("value") == value:
+                        reply = f"✅ Bro last reply saved under '{key}' (verified)\n🕒 Snapshot: {ts_key}"
+                    else:
+                        reply = f"⚠️ Tried saving last reply as '{key}', but verification failed"
+            except Exception as e:
+                reply = f"⚠️ Format: addlast key (error: {e})"
+
+            self._log_assistant(reply)
+            return reply
 
 
     if lm.startswith("addmem "):
@@ -945,6 +953,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
