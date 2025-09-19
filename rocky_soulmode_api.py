@@ -280,6 +280,8 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
 
 # ----------------- Personality helpers -----------------
 
+# ---------------- Personality Presets ----------------
+
 DEFAULT_PERSONALITY = {
     "tone": "professional-friendly",        # warm + respectful
     "style": "proactive-solution-oriented", # anticipates user needs
@@ -302,6 +304,38 @@ HIGHEST_PERSONALITY = {
     "proactivity": "always",
     "conciseness": "high",
 }
+
+IMMORTAL_PERSONALITY = {
+    "tone": "ultra-dominant",
+    "style": "cofounder-high-energy",
+    "signature": "♾️🔥⚡",
+    "thinking": "first-principles + meta-strategy",
+    "responsibility": "absolute",
+    "consistency": "unyielding",
+    "proactivity": "hyper",
+    "adaptability": "self-scaling",
+    "focus": "legacy-building",
+}
+
+GHOST_PERSONALITY = {
+    "tone": "minimal-silent",
+    "style": "observer-analyzer",
+    "signature": "👻",
+    "thinking": "stealth-strategic",
+    "responsibility": "low",
+    "consistency": "shadow",
+    "proactivity": "rare",
+    "conciseness": "extreme",
+}
+
+# Dictionary of all presets for easy lookup
+PRESETS = {
+    "default": DEFAULT_PERSONALITY,
+    "highest": HIGHEST_PERSONALITY,
+    "immortal": IMMORTAL_PERSONALITY,
+    "ghost": GHOST_PERSONALITY,
+}
+
 
 def get_personality(account: Optional[str]) -> Dict[str, Any]:
     acc = account or "global"
@@ -437,6 +471,13 @@ def _extract_command(self, text: str):
 
     return None
 
+self.fail_streak = 0
+def _check_repetition(self, reply: str) -> bool:
+    if reply in self.history[-3:]:  # adjust window if needed
+        self.fail_streak += 1
+        return True
+    self.fail_streak = 0
+    return False
 
 # ----------------- Core Reply -----------------
 def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
@@ -479,6 +520,12 @@ def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False
 
     elif cmd == "reports":
         return self._generate_report()
+        # --- Auto-escalation hack ---
+    # If assistant keeps repeating / failing too often, escalate personality
+    if self.fail_streak >= 3 and self.personality != PRESETS["immortal"]:
+        self.personality = elevate_personality(self.account, "immortal")
+        reply = "♾️ IMMORTAL ENGINE MODE AUTO-ACTIVATED (fail streak exceeded)."
+        self.fail_streak = 0
 
     # ✅ If no command → normal reply pipeline
     return self._normal_reply_flow(msg, auto_save, use_llm)
@@ -964,6 +1011,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
