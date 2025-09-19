@@ -421,7 +421,7 @@ class RockyAgent:
         )
 
    # ----------------- Command Extractor -----------------
-def _extract_command(self, text: str):
+   def _extract_command(self, text: str):
     """
     Advanced command parser with regex, tokenization, universal prefix,
     and meta-level hacks for consistent parsing across ChatGPT engines.
@@ -468,58 +468,99 @@ def _extract_command(self, text: str):
         for pattern, full in aliases.items():
             if re.fullmatch(pattern, token, re.IGNORECASE):
                 return full
-
     return None
+    # ----------------- Core Reply -----------------
+    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
+        self._log_user(user_message)
+        msg = (user_message or "").strip()
 
-self.fail_streak = 0
-def _check_repetition(self, reply: str) -> bool:
-    if reply in self.history[-3:]:  # adjust window if needed
-        self.fail_streak += 1
-        return True
-    self.fail_streak = 0
-    return False
+        # ✅ Detect command
+        cmd = self._extract_command(msg)
 
-# ----------------- Core Reply -----------------
-def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
-    self._log_user(user_message)
-    msg = (user_message or "").strip()
+        if cmd == "addmem":
+            content = msg.split(" ", 1)[1] if " " in msg else ""
+            return self._save_facts({"custom": content}) or "✅ Memory added."
 
-    # ✅ Detect command
-    cmd = self._extract_command(msg)
+        elif cmd == "fmem":
+            key = msg.split(" ", 1)[1] if " " in msg else ""
+            return self._forget_fact(key)
 
-    if cmd == "addmem":
-        content = msg.split(" ", 1)[1] if " " in msg else ""
-        return self._save_facts([content]) or "✅ Memory added."
+        elif cmd == "getmem":
+            return str(self._load_facts()) or "⚠️ No memory found."
 
-    elif cmd == "fmem":
-        key = msg.split(" ", 1)[1] if " " in msg else ""
-        return self._forget_fact(key) or f"🗑️ Fact '{key}' deleted."
+        elif cmd == "listmem":
+            mems = self._load_facts()
+            return "🧠 Memories:\n" + "\n".join(mems) if mems else "⚠️ No stored memory."
 
-    elif cmd == "getmem":
-        return str(self._load_facts()) or "⚠️ No memory found."
+        elif cmd == "bropersonality":
+            return f"🤝 Current personality: {self.personality}"
 
-    elif cmd == "listmem":
-        return "\n".join(self._load_facts()) or "⚠️ No stored memory."
+        elif cmd == "bropersonalitystatus":
+            return f"📊 Personality status: {self.personality.get('status','unknown')}"
 
-    elif cmd == "bropersonality":
-        return f"🤝 Current personality: {self.personality}"
+        elif cmd == "bropersonalityreset":
+            self.personality = {}
+            return "🔄 Personality reset."
 
-    elif cmd == "bropersonalitystatus":
-        return f"📊 Personality status: {self.personality.get('status','unknown')}"
+        elif cmd == "bropersonalitydefault":
+            self.personality = DEFAULT_PERSONALITY.copy()
+            return "✨ Personality restored to default."
 
-    elif cmd == "bropersonalityreset":
-        self.personality = {}
-        return "🔄 Personality reset."
+        elif cmd == "bronotcorrect":
+            return "⚠️ Correction mode activated. Please clarify."
 
-    elif cmd == "bropersonalitydefault":
-        self.personality = DEFAULT_PERSONALITY.copy()
-        return "✨ Personality restored to default."
+        elif cmd == "reports":
+            return self._generate_report()
 
-    elif cmd == "bronotcorrect":
-        return "⚠️ Correction mode activated. Please clarify."
+        # --- Auto-escalation hack ---
+        if self.fail_streak >= 3 and self.personality != PRESETS["immortal"]:
+            self.personality = elevate_personality(self.account, "immortal")
+            reply = "♾️ IMMORTAL ENGINE MODE AUTO-ACTIVATED (fail streak exceeded)."
+            self.fail_streak = 0
+            return reply
 
-    elif cmd == "reports":
-        return self._generate_report()
+        # ✅ If no command → normal reply pipeline
+        return self._normal_reply_flow(msg, auto_save, use_llm)
+
+    # ----------------- Fact Helpers -----------------
+    def _forget_fact(self, key: str):
+        """
+        Forget a stored fact by key.
+        """
+        if not key:
+            return "⚠️ No key provided."
+        ok = forget_data(self.account, key)
+        return f"🗑️ Fact '{key}' deleted." if ok else f"⚠️ No fact found for '{key}'"
+
+    def _load_facts(self):
+        """
+        Load all stored facts for this account.
+        """
+        mems = export_all(self.account).get("memories", {})
+        return [f"{k.split('::')[-1]}: {v.get('value')}" for k, v in mems.items()]
+
+    def _generate_report(self):
+        """
+        Generate a basic report of stored facts.
+        """
+        mems = export_all(self.account).get("memories", {})
+        return f"📊 Report: {len(mems)} memories stored."
+
+
+    def _load_facts(self):
+        """
+        Load all stored facts for this account.
+        """
+        mems = export_all(self.account).get("memories", {})
+        return [f"{k.split('::')[-1]}: {v.get('value')}" for k, v in mems.items()]
+
+    def _generate_report(self):
+        """
+        Generate a basic report of stored facts.
+        """
+        mems = export_all(self.account).get("memories", {})
+        return f"📊 Report: {len(mems)} memories stored."
+        
         # --- Auto-escalation hack ---
     # If assistant keeps repeating / failing too often, escalate personality
     if self.fail_streak >= 3 and self.personality != PRESETS["immortal"]:
@@ -689,7 +730,7 @@ def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False
                 )
                 reply = resp["choices"][0]["message"]["content"].strip()
             except Exception as e:
-                reply += f"\n(LLM escalation failed: {e})"
+                reply += f"⚠️ LLM escalation failed: {e}"
         else:
             reply = reply if 'reply' in locals() else "⚠️ No reply generated."
         if self.personality.get("signature"):
@@ -1012,9 +1053,3 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
-
-
-
-
-
-
