@@ -12,7 +12,12 @@ import random
 import traceback
 
 def log_firestore_error(action: str, account: str, key: str, error: Exception):
-    logger.error(
+    """
+    Safe Firestore error logger: use local logger instance so this function
+    won't break if module-level logger hasn't been created yet.
+    """
+    lg = logging.getLogger("rocky_soulmode")  # get or create named logger
+    lg.error(
         f"\n🚨 FIRESTORE ERROR during {action}\n"
         f"   account = {account}\n"
         f"   key     = {key}\n"
@@ -20,6 +25,7 @@ def log_firestore_error(action: str, account: str, key: str, error: Exception):
         f"   details = {str(error)}\n"
         f"   trace   = {traceback.format_exc()}"
     )
+
 
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
@@ -380,29 +386,102 @@ class RockyAgent:
              "status": "failed", "time": now_iso()}
         )
 
-    # ----------------- Core Reply -----------------
-    def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
-        self._log_user(user_message)
-        msg = (user_message or "").strip()
-        lm = msg.lower()
+   # ----------------- Command Extractor -----------------
+def _extract_command(self, text: str):
+    """
+    Advanced command parser with regex, tokenization, universal prefix,
+    and meta-level hacks for consistent parsing across ChatGPT engines.
+    """
+    original = (text or "").strip()
+    lowered = original.lower()
 
-        # 🔑 Aliases
-        aliases = {
-            "addm": "addmem",
-            "fdel": "fmem",
-            "lmem": "listmem",
-            "brop": "bropersonality",
-            "brops": "bropersonalitystatus",
-            "bropr": "bropersonalityreset",
-            "bropd": "bropersonalitydefault",
-            "brofix": "bronotcorrect",
-            "rpt": "reports",
-        }
-        for short, full in aliases.items():
-            if lm.startswith(short):
-                lm = lm.replace(short, full, 1)
-                msg = msg.replace(short, full, 1)
-                break
+    # ✅ Universal prefix normalization
+    prefixes = ["bro ", "/", "::", ">>", ">>>", "rocky "]
+    for p in prefixes:
+        if lowered.startswith(p):
+            lowered = lowered[len(p):].strip()
+            break
+
+    # ✅ Meta-level forced command (<<<addm>>> or [[addm]])
+    meta_match = re.match(r"^(?:<<<|\[\[)(.+?)(?:>>>|\]\])", lowered)
+    if meta_match:
+        lowered = meta_match.group(1).strip()
+
+    # ✅ Tokenize to catch inline or glued variants (e.g. addm:fact, bro-addm)
+    tokens = re.split(r"[\s:;,\-_/]+", lowered)
+
+    # ✅ Regex alias map (base commands + your custom ones)
+    aliases = {
+        r"^(addm|addmem)$": "addmem",
+        r"^(fmem|fdel|forget)$": "fmem",
+        r"^(getm|getmem|showmem)$": "getmem",
+        r"^(lmem|listmem|allmem)$": "listmem",
+        r"^(brop|bro_personality|personality)$": "bropersonality",
+        r"^(brops|bropstatus|personalitystatus)$": "bropersonalitystatus",
+        r"^(bropr|bropreset)$": "bropersonalityreset",
+        r"^(bropd|bropdefault)$": "bropersonalitydefault",
+        r"^(brofix|brocorrect|fix)$": "bronotcorrect",
+        r"^(rpt|report|reports)$": "reports",
+    }
+
+    # 1) Direct regex match
+    for pattern, full in aliases.items():
+        if re.search(pattern, lowered, re.IGNORECASE):
+            return full
+
+    # 2) Token-based fallback
+    for token in tokens:
+        for pattern, full in aliases.items():
+            if re.fullmatch(pattern, token, re.IGNORECASE):
+                return full
+
+    return None
+
+
+# ----------------- Core Reply -----------------
+def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
+    self._log_user(user_message)
+    msg = (user_message or "").strip()
+
+    # ✅ Detect command
+    cmd = self._extract_command(msg)
+
+    if cmd == "addmem":
+        content = msg.split(" ", 1)[1] if " " in msg else ""
+        return self._save_facts([content]) or "✅ Memory added."
+
+    elif cmd == "fmem":
+        key = msg.split(" ", 1)[1] if " " in msg else ""
+        return self._forget_fact(key) or f"🗑️ Fact '{key}' deleted."
+
+    elif cmd == "getmem":
+        return str(self._load_facts()) or "⚠️ No memory found."
+
+    elif cmd == "listmem":
+        return "\n".join(self._load_facts()) or "⚠️ No stored memory."
+
+    elif cmd == "bropersonality":
+        return f"🤝 Current personality: {self.personality}"
+
+    elif cmd == "bropersonalitystatus":
+        return f"📊 Personality status: {self.personality.get('status','unknown')}"
+
+    elif cmd == "bropersonalityreset":
+        self.personality = {}
+        return "🔄 Personality reset."
+
+    elif cmd == "bropersonalitydefault":
+        self.personality = DEFAULT_PERSONALITY.copy()
+        return "✨ Personality restored to default."
+
+    elif cmd == "bronotcorrect":
+        return "⚠️ Correction mode activated. Please clarify."
+
+    elif cmd == "reports":
+        return self._generate_report()
+
+    # ✅ If no command → normal reply pipeline
+    return self._normal_reply_flow(msg, auto_save, use_llm)
 
         # ---------------- Personality Commands ----------------
         if lm.startswith("bro personality"):
@@ -885,5 +964,6 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
