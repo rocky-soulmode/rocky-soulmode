@@ -530,8 +530,8 @@ def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False
     # ✅ If no command → normal reply pipeline
     return self._normal_reply_flow(msg, auto_save, use_llm)
 
-        # ---------------- Personality Commands ----------------
-        if lm.startswith("bro personality"):
+ # ---------------- Personality Commands ----------------
+ if lm.startswith("bro personality"):
             if "status" in lm:
                 p = get_personality(self.account)
                 reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
@@ -1012,6 +1012,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
