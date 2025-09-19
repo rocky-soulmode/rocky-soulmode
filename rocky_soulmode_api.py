@@ -690,7 +690,8 @@ def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False
                 reply = resp["choices"][0]["message"]["content"].strip()
             except Exception as e:
                 reply += f"\n(LLM escalation failed: {e})"
-
+        else:
+            reply = reply if 'reply' in locals() else "⚠️ No reply generated."
         if self.personality.get("signature"):
             reply = f"{reply} {self.personality['signature']}"
         if self.personality.get("style") == "cofounder-high-energy":
@@ -1011,6 +1012,7 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
 
 
 
