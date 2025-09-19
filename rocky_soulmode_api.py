@@ -582,6 +582,29 @@ class RockyAgent:
 
     self._log_assistant(reply)
     return reply
+        if use_llm and HAS_OPENAI:
+            try:
+                prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
+                resp = openai.ChatCompletion.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are ALADDIN, a problem-solver."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=400,
+                    temperature=0.7
+                )
+                reply = resp["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                reply += f"\n(LLM escalation failed: {e})"
+
+        if self.personality.get("signature"):
+            reply = f"{reply} {self.personality['signature']}"
+        if self.personality.get("style") == "cofounder-high-energy":
+            reply = reply.upper()
+
+        self._log_assistant(reply)
+        return reply
 
 # ----------------- FastAPI -----------------
 if HAS_FASTAPI:
@@ -895,3 +918,4 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
+
