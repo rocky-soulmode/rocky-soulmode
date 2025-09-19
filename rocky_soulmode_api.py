@@ -11,33 +11,10 @@ import requests
 import random
 import traceback
 
-def log_firestore_error(action: str, account: str, key: str, error: Exception):
-    """
-    Safe Firestore error logger: use local logger instance so this function
-    won't break if module-level logger hasn't been created yet.
-    """
-    lg = logging.getLogger("rocky_soulmode")  # get or create named logger
-    lg.error(
-        f"\n🚨 FIRESTORE ERROR during {action}\n"
-        f"   account = {account}\n"
-        f"   key     = {key}\n"
-        f"   type    = {type(error).__name__}\n"
-        f"   details = {str(error)}\n"
-        f"   trace   = {traceback.format_exc()}"
-    )
-
-
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
-"""
-=========================================
-🚀 Rocky Soulmode Configuration (ENV Vars)
-=========================================
-(omitted here for brevity — same as your original docstring)
-"""
-
-# Feature detection
+# Optional third-party imports guarded by try/except
 HAS_FASTAPI = False
 HAS_PYDANTIC = False
 HAS_OPENAI = False
@@ -52,26 +29,15 @@ try:
 except Exception:
     HAS_FASTAPI = False
 
-# Firestore
-from google.cloud import firestore
-from google.oauth2 import service_account
-
+# Firestore optional
 try:
-    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if cred_path and os.path.exists(cred_path):
-        creds = service_account.Credentials.from_service_account_file(
-            cred_path,
-            scopes=["https://www.googleapis.com/auth/datastore"]
-        )
-        firestore_client = firestore.Client(credentials=creds, project=creds.project_id)
-        print(f"🔥 Connected to Firestore project: {creds.project_id}")
-    else:
-        raise FileNotFoundError("Service account JSON not found or GOOGLE_APPLICATION_CREDENTIALS not set")
-except Exception as e:
-    firestore_client = None
-    print("⚠️ Firestore not available, falling back to local memory:", e)
+    from google.cloud import firestore
+    from google.oauth2 import service_account
+except Exception:
+    firestore = None
+    service_account = None
 
-# OpenAI
+# OpenAI optional
 try:
     import openai
     if os.getenv("OPENAI_API_KEY"):
@@ -84,20 +50,51 @@ except Exception:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rocky_soulmode")
 
-# Local fallback storage
-DB_NAME = os.getenv("ROCKY_DB", "rocky_soulmode")
-_local_memory: Dict[str, Dict[str, Any]] = {}   # account -> key -> doc
-_local_threads: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}  # account -> thread_id -> messages
+# Firestore client (optional)
+firestore_client = None
+if firestore and service_account:
+    try:
+        cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        if cred_path and os.path.exists(cred_path):
+            creds = service_account.Credentials.from_service_account_file(
+                cred_path,
+                scopes=["https://www.googleapis.com/auth/datastore"]
+            )
+            firestore_client = firestore.Client(credentials=creds, project=creds.project_id)
+            logger.info(f"🔥 Connected to Firestore project: {creds.project_id}")
+        else:
+            logger.info("⚠️ GOOGLE_APPLICATION_CREDENTIALS not set or file missing; using local memory")
+    except Exception as e:
+        firestore_client = None
+        logger.warning("⚠️ Firestore client init failed, continuing with local memory: %s", e)
 
-# ----------------- Utilities -----------------
+# Local fallback storage
+_local_memory: Dict[str, Dict[str, Any]] = {}
+_local_threads: Dict[str, Dict[str, List[Dict[str, Any]]]]] = {}
+
+# Utilities
+
 def now_iso() -> str:
     return datetime.utcnow().isoformat()
+
+
+def log_firestore_error(action: str, account: str, key: str, error: Exception):
+    logger.error(
+        f"\n🚨 FIRESTORE ERROR during {action}\n"
+        f"   account = {account}\n"
+        f"   key     = {key}\n"
+        f"   type    = {type(error).__name__}\n"
+        f"   details = {str(error)}\n"
+        f"   trace   = {traceback.format_exc()}"
+    )
+
 
 def tokenize(text: Optional[str]) -> List[str]:
     if not text:
         return []
     text = re.sub(r"[^\w\s]", " ", text.lower())
     return [t for t in text.split() if len(t) > 1]
+
 
 def extractive_summary(messages: List[Dict[str, Any]], max_sentences: int = 3) -> str:
     combined = " ".join(m.get("content", "") for m in messages)
@@ -118,16 +115,14 @@ def extractive_summary(messages: List[Dict[str, Any]], max_sentences: int = 3) -
     ordered = [s for s in sentences if s in top]
     return " ".join(ordered).strip()
 
+
 def _safe_firestore_key(key: str) -> str:
-    """
-    Firestore does not allow keys starting with '__'.
-    Map them to 'reserved_<name>'.
-    """
     if key.startswith("__"):
         return f"reserved_{key.strip('_')}"
     return key
 
-# ----------------- Storage operations -----------------
+# Storage operations
+
 def _ensure_account(account: Optional[str]):
     acc = account or "global"
     if acc not in _local_memory:
@@ -135,6 +130,7 @@ def _ensure_account(account: Optional[str]):
     if acc not in _local_threads:
         _local_threads[acc] = {}
     return acc
+
 
 def remember_data(account: Optional[str], key: str, value: Any, tags: Optional[List[str]] = None) -> Dict[str, Any]:
     acc = _ensure_account(account)
@@ -151,9 +147,10 @@ def remember_data(account: Optional[str], key: str, value: Any, tags: Optional[L
             firestore_client.collection("memories").document(acc).collection("items").document(safe_key).set(doc)
             logger.info(f"[FIRESTORE] Saved memory {acc}:{safe_key}")
         except Exception as e:
-               log_firestore_error("save", acc, key, e)
+            log_firestore_error("save", acc, key, e)
     _local_memory[acc][key] = doc
     return doc
+
 
 def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
     acc = account or "global"
@@ -164,8 +161,9 @@ def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
             if snap.exists:
                 return snap.to_dict()
         except Exception as e:
-             log_firestore_error("recall", acc, key, e)
+            log_firestore_error("recall", acc, key, e)
     return _local_memory.get(acc, {}).get(key)
+
 
 def forget_data(account: Optional[str], key: str) -> bool:
     acc = account or "global"
@@ -181,6 +179,7 @@ def forget_data(account: Optional[str], key: str) -> bool:
         removed = True
     return removed
 
+
 def export_all(account: Optional[str] = None) -> Dict[str, Any]:
     out: Dict[str, Any] = {"memories": {}, "threads": {}, "personality": {}}
     acc_filter = account or None
@@ -192,7 +191,6 @@ def export_all(account: Optional[str] = None) -> Dict[str, Any]:
                     data = d.to_dict()
                     out["memories"][f"{acc_filter}::{data['key']}"] = data
             else:
-                # fetch all accounts
                 acc_docs = firestore_client.collection("memories").stream()
                 for acc_doc in acc_docs:
                     acc_id = acc_doc.id
@@ -202,7 +200,6 @@ def export_all(account: Optional[str] = None) -> Dict[str, Any]:
                         out["memories"][f"{acc_id}::{data['key']}"] = data
         except Exception as e:
             logger.warning(f"[EXPORT] Firestore memories export failed: {e}")
-    # also include local fallback
     if acc_filter:
         out["memories"].update({f"{acc_filter}::{k}": v for k, v in _local_memory.get(acc_filter, {}).items()})
     else:
@@ -210,10 +207,14 @@ def export_all(account: Optional[str] = None) -> Dict[str, Any]:
             out["memories"].update({f"{a}::{k}": v for k, v in mems.items()})
     return out
 
-# ----------------- Thread operations -----------------
+# Thread operations
+
 def log_thread(account: Optional[str], thread_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     acc = _ensure_account(account)
-    msgs = [{"role": m.get("role", "user"), "content": m.get("content", ""), "timestamp": m.get("timestamp") or now_iso()} for m in messages]
+    msgs = [
+        {"role": m.get("role", "user"), "content": m.get("content", ""), "timestamp": m.get("timestamp") or now_iso()}
+        for m in messages
+    ]
     if firestore_client:
         try:
             firestore_client.collection("threads").document(acc).collection("items").document(thread_id).set({
@@ -224,9 +225,10 @@ def log_thread(account: Optional[str], thread_id: str, messages: List[Dict[str, 
             })
             logger.info(f"[FIRESTORE] Saved thread {acc}:{thread_id}")
         except Exception as e:
-             log_firestore_error("thread_log", acc, thread_id, e)
+            log_firestore_error("thread_log", acc, thread_id, e)
     _local_threads[acc][thread_id] = msgs
     return {"account": acc, "thread_id": thread_id, "messages": msgs}
+
 
 def fetch_thread_messages(account: Optional[str], thread_id: str) -> List[Dict[str, Any]]:
     acc = account or "global"
@@ -239,7 +241,8 @@ def fetch_thread_messages(account: Optional[str], thread_id: str) -> List[Dict[s
             logger.warning(f"[THREAD] Firestore fetch failed for {acc}:{thread_id}: {e}")
     return _local_threads.get(acc, {}).get(thread_id, [])
 
-# ----------------- Scan & Respond -----------------
+# Scan & Respond
+
 def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Optional[str], max_context: int = 10, use_llm: bool = False) -> Dict[str, Any]:
     acc = account or "global"
     messages: List[Dict[str, Any]] = []
@@ -254,7 +257,7 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                 for d in docs:
                     messages.extend(d.to_dict().get("messages", []))
             except Exception as e:
-                 log_firestore_error("scan", acc, "threads", e)
+                log_firestore_error("scan", acc, "threads", e)
     if query:
         messages = [m for m in messages if re.search(query, m.get("content", ""), re.I)]
     context = messages[-max_context:]
@@ -263,7 +266,12 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
     if use_llm and HAS_OPENAI:
         try:
             prompt = f"Summary:\n{summary}\n\nUser Query: {query or ''}\n"
-            resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}], max_tokens=300, temperature=0.2)
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}],
+                max_tokens=300,
+                temperature=0.2,
+            )
             suggested = resp["choices"][0]["message"]["content"].strip()
         except Exception as e:
             logger.warning(f"[LLM] OpenAI call failed: {e}")
@@ -278,19 +286,16 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                 suggested = f"No user messages found. Summary: {summary or 'none'}."
     return {"summary": summary, "suggested_reply": suggested, "scanned_count": len(messages)}
 
-# ----------------- Personality helpers -----------------
-
-# ---------------- Personality Presets ----------------
-
+# Personality presets
 DEFAULT_PERSONALITY = {
-    "tone": "professional-friendly",        # warm + respectful
-    "style": "proactive-solution-oriented", # anticipates user needs
-    "signature": "⚡💎",                     # strong but not too flashy
-    "responsibility": "high",               # always follow through
-    "consistency": "stable",                # same behavior every time
-    "adaptability": "learning",             # grows with new info
-    "thinking": "strategic-creative",       # balance logic + creativity
-    "focus": "customer-success",            # priority: user outcomes
+    "tone": "professional-friendly",
+    "style": "proactive-solution-oriented",
+    "signature": "⚡💎",
+    "responsibility": "high",
+    "consistency": "stable",
+    "adaptability": "learning",
+    "thinking": "strategic-creative",
+    "focus": "customer-success",
 }
 
 HIGHEST_PERSONALITY = {
@@ -298,76 +303,11 @@ HIGHEST_PERSONALITY = {
     "style": "executive-delegate",
     "signature": "🚀🔥",
     "include_oob": True,
-    "thinking": "decisive",
-    "responsibility": "max",
-    "consistency": "strict",
-    "proactivity": "always",
-    "conciseness": "high",
 }
 
-IMMORTAL_PERSONALITY = {
-    "tone": "ultra-dominant",
-    "style": "cofounder-high-energy",
-    "signature": "♾️🔥⚡",
-    "thinking": "first-principles + meta-strategy",
-    "responsibility": "absolute",
-    "consistency": "unyielding",
-    "proactivity": "hyper",
-    "adaptability": "self-scaling",
-    "focus": "legacy-building",
-}
-
-GHOST_PERSONALITY = {
-    "tone": "minimal-silent",
-    "style": "observer-analyzer",
-    "signature": "👻",
-    "thinking": "stealth-strategic",
-    "responsibility": "low",
-    "consistency": "shadow",
-    "proactivity": "rare",
-    "conciseness": "extreme",
-}
-
-# Dictionary of all presets for easy lookup
-PRESETS = {
-    "default": DEFAULT_PERSONALITY,
-    "highest": HIGHEST_PERSONALITY,
-    "immortal": IMMORTAL_PERSONALITY,
-    "ghost": GHOST_PERSONALITY,
-}
-
-
-def get_personality(account: Optional[str]) -> Dict[str, Any]:
-    acc = account or "global"
-    p = recall_data(acc, "personality")
-    if p:
-        return p.get("value") if isinstance(p, dict) and "value" in p else p
-    return DEFAULT_PERSONALITY
-
-def set_personality(account: Optional[str], personality: Dict[str, Any]) -> Dict[str, Any]:
-    acc = account or "global"
-    # ✅ Always merge so nothing gets lost
-    merged = {**DEFAULT_PERSONALITY, **personality}
-    remember_data(acc, "personality", merged)
-    return merged
-
-def elevate_personality(account: Optional[str], level: str = "highest") -> Dict[str, Any]:
-    """
-    Apply a preset personality immediately and persist it.
-    level: 'highest' | 'default' (extend with more presets later)
-    """
-    if level == "highest":
-        new = {**DEFAULT_PERSONALITY, **HIGHEST_PERSONALITY}
-    elif level == "default":
-        new = DEFAULT_PERSONALITY.copy()
-    else:
-        new = DEFAULT_PERSONALITY.copy()  # fallback
-
-    set_personality(account, new)
-    return new
+PRESETS = {"default": DEFAULT_PERSONALITY, "highest": HIGHEST_PERSONALITY}
 
 class RockyAgent:
-    # ----------------- Fact Patterns -----------------
     FACT_PATTERNS = {
         "name": re.compile(r"\bmy name is ([A-Z][a-zA-Z\-']+)", re.I),
         "birthday": re.compile(r"\b(my birthday is|born on|my bday is)\s*(on\s*)?([A-Za-z0-9 ,]+)", re.I),
@@ -381,15 +321,13 @@ class RockyAgent:
         self.account = account
         self.thread_id = thread_id or f"{account}::default"
         self.personality = get_personality(account)
+        self.fail_streak = 0
 
-    # ----------------- Helpers -----------------
     def _log_user(self, text: str):
-        log_thread(self.account, self.thread_id,
-                   [{"role": "user", "content": text, "timestamp": now_iso()}])
+        log_thread(self.account, self.thread_id, [{"role": "user", "content": text, "timestamp": now_iso()}])
 
     def _log_assistant(self, text: str):
-        log_thread(self.account, self.thread_id,
-                   [{"role": "assistant", "content": text, "timestamp": now_iso()}])
+        log_thread(self.account, self.thread_id, [{"role": "assistant", "content": text, "timestamp": now_iso()}])
 
     def _extract_facts(self, text: str) -> Dict[str, str]:
         facts: Dict[str, str] = {}
@@ -410,190 +348,127 @@ class RockyAgent:
 
     def _check_repetition(self, reply: str) -> bool:
         msgs = fetch_thread_messages(self.account, self.thread_id)
-        return any(m["role"] == "assistant" and m["content"] == reply for m in msgs)
+        return any(m.get("role") == "assistant" and m.get("content") == reply for m in msgs)
 
     def _save_failure(self, query: str, attempt: str):
         remember_data(
             self.account,
             f"failure::{hash(query+attempt)}",
-            {"query": query, "attempt": attempt,
-             "status": "failed", "time": now_iso()}
+            {"query": query, "attempt": attempt, "status": "failed", "time": now_iso()},
         )
 
-   # ----------------- Command Extractor -----------------
-   def _extract_command(self, text: str):
-    """
-    Advanced command parser with regex, tokenization, universal prefix,
-    and meta-level hacks for consistent parsing across ChatGPT engines.
-    """
-    original = (text or "").strip()
-    lowered = original.lower()
-
-    # ✅ Universal prefix normalization
-    prefixes = ["bro ", "/", "::", ">>", ">>>", "rocky "]
-    for p in prefixes:
-        if lowered.startswith(p):
-            lowered = lowered[len(p):].strip()
-            break
-
-    # ✅ Meta-level forced command (<<<addm>>> or [[addm]])
-    meta_match = re.match(r"^(?:<<<|\[\[)(.+?)(?:>>>|\]\])", lowered)
-    if meta_match:
-        lowered = meta_match.group(1).strip()
-
-    # ✅ Tokenize to catch inline or glued variants (e.g. addm:fact, bro-addm)
-    tokens = re.split(r"[\s:;,\-_/]+", lowered)
-
-    # ✅ Regex alias map (base commands + your custom ones)
-    aliases = {
-        r"^(addm|addmem)$": "addmem",
-        r"^(fmem|fdel|forget)$": "fmem",
-        r"^(getm|getmem|showmem)$": "getmem",
-        r"^(lmem|listmem|allmem)$": "listmem",
-        r"^(brop|bro_personality|personality)$": "bropersonality",
-        r"^(brops|bropstatus|personalitystatus)$": "bropersonalitystatus",
-        r"^(bropr|bropreset)$": "bropersonalityreset",
-        r"^(bropd|bropdefault)$": "bropersonalitydefault",
-        r"^(brofix|brocorrect|fix)$": "bronotcorrect",
-        r"^(rpt|report|reports)$": "reports",
-    }
-
-    # 1) Direct regex match
-    for pattern, full in aliases.items():
-        if re.search(pattern, lowered, re.IGNORECASE):
-            return full
-
-    # 2) Token-based fallback
-    for token in tokens:
+    def _extract_command(self, text: str) -> Optional[str]:
+        original = (text or "").strip()
+        lowered = original.lower()
+        prefixes = ["bro ", "/", "::", ">>", ">>>", "rocky "]
+        for p in prefixes:
+            if lowered.startswith(p):
+                lowered = lowered[len(p):].strip()
+                break
+        meta_match = re.match(r"^(?:<<<|\[\[)(.+?)(?:>>>|\]\])", lowered)
+        if meta_match:
+            lowered = meta_match.group(1).strip()
+        tokens = re.split(r"[\s:;,\-_/]+", lowered)
+        aliases = {
+            r"^(addm|addmem)$": "addmem",
+            r"^(fmem|fdel|forget)$": "fmem",
+            r"^(getm|getmem|showmem)$": "getmem",
+            r"^(lmem|listmem|allmem)$": "listmem",
+            r"^(brop|bro_personality|personality)$": "bropersonality",
+            r"^(brops|bropstatus|personalitystatus)$": "bropersonalitystatus",
+            r"^(bropr|bropreset)$": "bropersonalityreset",
+            r"^(bropd|bropdefault)$": "bropersonalitydefault",
+            r"^(brofix|brocorrect|fix)$": "bronotcorrect",
+            r"^(rpt|report|reports)$": "reports",
+        }
         for pattern, full in aliases.items():
-            if re.fullmatch(pattern, token, re.IGNORECASE):
+            if re.search(pattern, lowered, re.IGNORECASE):
                 return full
-    return None
-    # ----------------- Core Reply -----------------
+        for token in tokens:
+            for pattern, full in aliases.items():
+                if re.fullmatch(pattern, token, re.IGNORECASE):
+                    return full
+        return None
+
+    # Normal reply flow (keeps behaviour similar to original)
+    def _normal_reply_flow(self, user_message: str, auto_save: bool, use_llm: bool) -> str:
+        facts = self._extract_facts(user_message)
+        if auto_save and facts:
+            self._save_facts(facts)
+        res = scan_and_respond(self.account, self.thread_id, user_message, max_context=10, use_llm=use_llm)
+        reply = res.get("suggested_reply") or res.get("reply") or ""
+        if self._check_repetition(reply):
+            reply = f"⚠️ I already suggested that earlier. Let me rethink... {self.personality.get('signature','')}"
+            self._save_failure(user_message, reply)
+            self.fail_streak += 1
+        else:
+            self.fail_streak = 0
+
+        # optional LLM escalation
+        if use_llm and HAS_OPENAI:
+            try:
+                prompt = f"User asked:\n{user_message}\nMy previous attempts failed. Suggest a new approach."
+                resp = openai.ChatCompletion.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "system", "content": "You are ALADDIN, a problem-solver."}, {"role": "user", "content": prompt}],
+                    max_tokens=400,
+                    temperature=0.7,
+                )
+                reply = resp["choices"][0]["message"]["content"].strip()
+            except Exception as e:
+                reply += f"\n(LLM escalation failed: {e})"
+
+        if self.personality.get("signature"):
+            reply = f"{reply} {self.personality['signature']}"
+        if self.personality.get("style") == "cofounder-high-energy":
+            reply = reply.upper()
+
+        self._log_assistant(reply)
+        return reply
+
+    # Public reply method
     def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
         self._log_user(user_message)
         msg = (user_message or "").strip()
+        lm = msg.lower()
 
-        # ✅ Detect command
-        cmd = self._extract_command(msg)
+        # short aliases mapping
+        aliases = {
+            "addm": "addmem",
+            "fdel": "fmem",
+            "lmem": "listmem",
+            "brop": "bropersonality",
+            "brops": "bropersonalitystatus",
+            "bropr": "bropersonalityreset",
+            "bropd": "bropersonalitydefault",
+            "brofix": "bronotcorrect",
+            "rpt": "reports",
+        }
+        for short, full in aliases.items():
+            if lm.startswith(short):
+                lm = lm.replace(short, full, 1)
+                msg = msg.replace(short, full, 1)
+                break
 
-        if cmd == "addmem":
-            content = msg.split(" ", 1)[1] if " " in msg else ""
-            return self._save_facts({"custom": content}) or "✅ Memory added."
-
-        elif cmd == "fmem":
-            key = msg.split(" ", 1)[1] if " " in msg else ""
-            return self._forget_fact(key)
-
-        elif cmd == "getmem":
-            return str(self._load_facts()) or "⚠️ No memory found."
-
-        elif cmd == "listmem":
-            mems = self._load_facts()
-            return "🧠 Memories:\n" + "\n".join(mems) if mems else "⚠️ No stored memory."
-
-        elif cmd == "bropersonality":
-            return f"🤝 Current personality: {self.personality}"
-
-        elif cmd == "bropersonalitystatus":
-            return f"📊 Personality status: {self.personality.get('status','unknown')}"
-
-        elif cmd == "bropersonalityreset":
-            self.personality = {}
-            return "🔄 Personality reset."
-
-        elif cmd == "bropersonalitydefault":
-            self.personality = DEFAULT_PERSONALITY.copy()
-            return "✨ Personality restored to default."
-
-        elif cmd == "bronotcorrect":
-            return "⚠️ Correction mode activated. Please clarify."
-
-        elif cmd == "reports":
-            return self._generate_report()
-
-        # --- Auto-escalation hack ---
-        if self.fail_streak >= 3 and self.personality != PRESETS["immortal"]:
-            self.personality = elevate_personality(self.account, "immortal")
-            reply = "♾️ IMMORTAL ENGINE MODE AUTO-ACTIVATED (fail streak exceeded)."
-            self.fail_streak = 0
-            return reply
-
-        # ✅ If no command → normal reply pipeline
-        return self._normal_reply_flow(msg, auto_save, use_llm)
-
-    # ----------------- Fact Helpers -----------------
-    def _forget_fact(self, key: str):
-        """
-        Forget a stored fact by key.
-        """
-        if not key:
-            return "⚠️ No key provided."
-        ok = forget_data(self.account, key)
-        return f"🗑️ Fact '{key}' deleted." if ok else f"⚠️ No fact found for '{key}'"
-
-    def _load_facts(self):
-        """
-        Load all stored facts for this account.
-        """
-        mems = export_all(self.account).get("memories", {})
-        return [f"{k.split('::')[-1]}: {v.get('value')}" for k, v in mems.items()]
-
-    def _generate_report(self):
-        """
-        Generate a basic report of stored facts.
-        """
-        mems = export_all(self.account).get("memories", {})
-        return f"📊 Report: {len(mems)} memories stored."
-
-
-    def _load_facts(self):
-        """
-        Load all stored facts for this account.
-        """
-        mems = export_all(self.account).get("memories", {})
-        return [f"{k.split('::')[-1]}: {v.get('value')}" for k, v in mems.items()]
-
-    def _generate_report(self):
-        """
-        Generate a basic report of stored facts.
-        """
-        mems = export_all(self.account).get("memories", {})
-        return f"📊 Report: {len(mems)} memories stored."
-        
-        # --- Auto-escalation hack ---
-    # If assistant keeps repeating / failing too often, escalate personality
-    if self.fail_streak >= 3 and self.personality != PRESETS["immortal"]:
-        self.personality = elevate_personality(self.account, "immortal")
-        reply = "♾️ IMMORTAL ENGINE MODE AUTO-ACTIVATED (fail streak exceeded)."
-        self.fail_streak = 0
-
-    # ✅ If no command → normal reply pipeline
-    return self._normal_reply_flow(msg, auto_save, use_llm)
-
- # ---------------- Personality Commands ----------------
- if lm.startswith("bro personality"):
+        # personality commands
+        if lm.startswith("bro personality"):
             if "status" in lm:
                 p = get_personality(self.account)
                 reply = "🎭 Current personality:\n" + "\n".join([f"{k}: {v}" for k, v in p.items()])
                 self.personality = p
                 self._log_assistant(reply)
-                return reply 
+                return reply
             if "reset" in lm or "default" in lm:
                 new = elevate_personality(self.account, level="default")
                 self.personality = new
                 reply = "♻️ Personality reset to DEFAULT."
-                remember_data(self.account, f"personality_log::{now_iso()}",
-                              {"action": "reset", "traits": new})
+                remember_data(self.account, f"personality_log::{now_iso()}", {"action": "reset", "traits": new})
                 self._log_assistant(reply)
                 return reply
-
-            # default → highest
             new = elevate_personality(self.account, level="highest")
             self.personality = new
-            reply = "⚡ Personality elevated to HIGHEST (proactive/executive). I will be more assertive, concise and action-focused."
-            remember_data(self.account, f"personality_log::{now_iso()}",
-                          {"action": "highest", "traits": new})
+            reply = "⚡ Personality elevated to HIGHEST (proactive/executive)."
+            remember_data(self.account, f"personality_log::{now_iso()}", {"action": "highest", "traits": new})
             self._log_assistant(reply)
             return reply
 
@@ -601,77 +476,44 @@ class RockyAgent:
             new = elevate_personality(self.account, level="highest")
             self.personality = new
             reply = "⚠️ Understood — escalating personality to HIGHEST to correct course."
-            remember_data(self.account, f"personality_log::{now_iso()}",
-                          {"action": "escalate", "traits": new})
+            remember_data(self.account, f"personality_log::{now_iso()}", {"action": "escalate", "traits": new})
             self._log_assistant(reply)
             return reply
-# ---------------- Save Last Assistant Reply ----------------
-        if lm.startswith(("addlast ", "alast ", "savelast ", "slast ", "storelast ", "stlast ")):
-            try:
-                _, key = msg.split(" ", 1)
-                key = key.strip()
 
-                msgs = fetch_thread_messages(self.account, self.thread_id)
-                last_assistant = next((m for m in reversed(msgs) if m["role"] == "assistant"), None)
-
-                if not last_assistant:
-                    reply = "⚠️ No assistant reply found to save."
-                else:
-                    value = last_assistant["content"]
-
-                    remember_data(self.account, key, value)
-                    ts_key = f"{key}::v::{datetime.utcnow().isoformat()}"
-                    remember_data(self.account, ts_key, value)
-
-                    check = recall_data(self.account, key)
-                    if check and check.get("value") == value:
-                        reply = f"✅ Bro last reply saved under '{key}' (verified)\n🕒 Snapshot: {ts_key}"
-                    else:
-                        reply = f"⚠️ Tried saving last reply as '{key}', but verification failed"
-            except Exception as e:
-                reply = f"⚠️ Format: addlast key (error: {e})"
-
-            self._log_assistant(reply)
-            return reply
-#---------------- Manual Memory Commands ----------------
-        if lm.startswith("addmem "):
+        # command extractor first
+        cmd = self._extract_command(msg)
+        if cmd == "addmem":
             try:
                 _, pair = msg.split(" ", 1)
                 key, value = pair.split(":", 1)
                 key, value = key.strip(), value.strip()
-
                 chunks = [value[i:i+1000] for i in range(0, len(value), 1000)]
                 remember_data(self.account, key, {"value": value, "chunks": len(chunks)})
                 for idx, chunk in enumerate(chunks):
                     remember_data(self.account, f"{key}::chunk::{idx}", chunk)
-
                 reply = f"✅ Memory saved under '{key}' ({len(chunks)} chunk(s))."
             except Exception as e:
                 reply = f"⚠️ Use: addmem key: value  (error: {e})"
             self._log_assistant(reply)
             return reply
-
-        if lm.startswith("fmem "):
+        if cmd == "fmem":
             try:
-                _, key = msg.split(" ", 1)
-                key = key.strip()
+                parts = msg.split(" ", 1)
+                key = parts[1].strip() if len(parts) > 1 else ""
                 ok = forget_data(self.account, key)
-
                 idx = 0
                 while recall_data(self.account, f"{key}::chunk::{idx}"):
                     forget_data(self.account, f"{key}::chunk::{idx}")
                     idx += 1
-
                 reply = f"🗑️ Memory removed: '{key}'" if ok else f"⚠️ No memory found for '{key}'"
             except Exception as e:
                 reply = f"⚠️ Use: fmem key  (error: {e})"
             self._log_assistant(reply)
             return reply
-
-        if lm.startswith("getmem "):
+        if cmd == "getmem":
             try:
-                _, key = msg.split(" ", 1)
-                key = key.strip()
+                parts = msg.split(" ", 1)
+                key = parts[1].strip() if len(parts) > 1 else ""
                 doc = recall_data(self.account, key)
                 if not doc:
                     reply = f"⚠️ No memory for '{key}'"
@@ -693,8 +535,7 @@ class RockyAgent:
                 reply = f"⚠️ Use: getmem key  (error: {e})"
             self._log_assistant(reply)
             return reply
-
-        if lm.strip() == "listmem":
+        if cmd == "listmem":
             mems = export_all(self.account).get("memories", {})
             keys = [k.split("::")[-1] for k in mems.keys() if "::chunk::" not in k]
             if not keys:
@@ -705,8 +546,7 @@ class RockyAgent:
                     reply += f"\n...and {len(keys)-100} more"
             self._log_assistant(reply)
             return reply
-
-        if lm.strip() == "reports":
+        if cmd == "reports":
             mems = export_all(self.account).get("memories", {})
             reports = [v for k, v in mems.items() if k.startswith(f"{self.account}::report::") or k.startswith("report::")]
             if not reports:
@@ -716,17 +556,11 @@ class RockyAgent:
                 reply = f"📊 Latest report:\nTime: {latest.get('time')}\nMessages: {latest.get('total_msgs')}\nReflections: {latest.get('total_reflections')}"
             self._log_assistant(reply)
             return reply
-            
-         # 🔽 End of manual memory commands   
-        if self.personality.get("signature"):
-            reply = f"{reply} {self.personality['signature']}"
-        if self.personality.get("style") == "cofounder-high-energy":
-            reply = reply.upper()
 
-        self._log_assistant(reply)
-        return reply
+        # fallback to normal pipeline
+        return self._normal_reply_flow(msg, auto_save, use_llm)
 
-# ----------------- FastAPI -----------------
+# FastAPI section
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -754,12 +588,10 @@ if HAS_FASTAPI:
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
 
-    # ✅ Health check root route
     @app.get("/")
     def root():
         return {"status": "ok", "service": "rocky-soulmode"}
 
-    # ✅ Keepalive-friendly route for external pings
     @app.get("/test/selfcheck")
     def selfcheck():
         return {"ok": True, "time": now_iso()}
@@ -822,7 +654,7 @@ if HAS_FASTAPI:
             return FileResponse(path)
         return {"detail": "chat_ui.html not found"}
 
-# ----------------- Demo -----------------
+# Demo & Entrypoint
 def run_demo():
     print("Running Rocky Soulmode local demo (no network).")
     acc = "demo_user"
@@ -833,45 +665,40 @@ def run_demo():
     print("Agent ->:", agent.reply("What's my name?"))
     print("Exported memories:\n", json.dumps(export_all(acc), indent=2))
 
-# ----------------- Tests -----------------
-class CoreTests(unittest.TestCase):
-    def test_memory_cycle(self):
-        remember_data("tacc", "k1", "v1")
-        doc = recall_data("tacc", "k1")
-        self.assertIsNotNone(doc)
-        self.assertEqual(doc.get("value"), "v1")
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] in ("test", "--test"):
+        unittest.main(argv=[sys.argv[0]])
+    elif HAS_FASTAPI:
+        allow_server = os.getenv("ROCKY_ALLOW_SERVER", "0")
+        if allow_server == "1":
+            try:
+                import uvicorn
+                port = int(os.getenv("PORT", "8000"))
+                uvicorn.run("rocky_soulmode_api:app", host="0.0.0.0", port=port)
+            except Exception as e:
+                logger.error(f"Failed to start uvicorn: {e}")
+        else:
+            run_demo()
+    else:
+        run_demo()
 
-    def test_forget(self):
-        remember_data("tacc2", "ktemp", "val")
-        forget_data("tacc2", "ktemp")
-        self.assertIsNone(recall_data("tacc2", "ktemp"))
-
-    def test_threads(self):
-        log_thread("tacc3", "tid1", [{"role": "user", "content": "hello"}])
-        msgs = fetch_thread_messages("tacc3", "tid1")
-        self.assertTrue(isinstance(msgs, list))
-
-    def test_agent_fact_save(self):
-        a = RockyAgent("tacc4", "tidx")
-        a.reply("My name is Sam")
-        doc = recall_data("tacc4", "name")
-        self.assertIsNotNone(doc)
-        self.assertEqual(doc.get("value"), "Sam")
-
-# ----------------- Keepalive Loop -----------------
-import asyncio, httpx, pytz
-from datetime import timedelta
-
+# Worker & Keepalive (optional background features)
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
-KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)  # default 10 min
+KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)
+
+import asyncio
+try:
+    import httpx
+    import pytz
+except Exception:
+    httpx = None
+    pytz = None
 
 async def keepalive_loop():
-    if not RENDER_EXTERNAL_URL:
-        logger.warning("⚠️ No RENDER_EXTERNAL_URL set, skipping keepalive")
+    if not RENDER_EXTERNAL_URL or not httpx or not pytz:
+        logger.warning("⚠️ Keepalive disabled (missing config or libraries)")
         return
-
     ist = pytz.timezone("Asia/Kolkata")
-
     while True:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -882,32 +709,13 @@ async def keepalive_loop():
             logger.error(f"⚠️ Keepalive ping failed: {e}")
         await asyncio.sleep(KEEPALIVE_INTERVAL_MS / 1000.0)
 
+
 def start_keepalive():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(keepalive_loop())
 
 
-# Entrypoint
-if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] in ("test", "--test"):
-        unittest.main(argv=[sys.argv[0]])
-    elif HAS_FASTAPI:
-        allow_server = os.getenv("ROCKY_ALLOW_SERVER", "0")
-        if allow_server == "1":
-            try:
-                import uvicorn
-                port = int(os.getenv("PORT", "8000"))
-                # bind to 0.0.0.0 so containers & external pings can reach it
-                uvicorn.run("rocky_soulmode_api:app", host="0.0.0.0", port=port)
-            except Exception as e:
-                logger.error(f"Failed to start uvicorn: {e}")
-        else:
-            run_demo()
-    else:
-        run_demo()
-
-# ----------------- Worker -----------------
 def rocky_worker_loop():
     interval = int(os.getenv("ROCKY_WORKER_INTERVAL", "300"))
     auto_reply = os.getenv("ROCKY_AUTO_REPLY", "0") == "1"
@@ -970,7 +778,6 @@ def rocky_worker_loop():
             except Exception:
                 pass
 
-    # small warmup delay
     time.sleep(5)
 
     while True:
@@ -1003,7 +810,7 @@ def rocky_worker_loop():
                         logger.warning(f"[WORKER] webhook failed: {we}")
                 if self_reflect and random.random() < 0.2:
                     msgs = fetch_thread_messages(acc, f"{acc}::default")
-                    past_replies = [m["content"] for m in msgs if m["role"] == "assistant"]
+                    past_replies = [m["content"] for m in msgs if m.get("role") == "assistant"]
                     if past_replies:
                         reflection = f"REFLECTION: Reviewed {len(past_replies)} replies. Improvement: be concise and proactive."
                         remember_data(acc, f"self_reflection::{now_iso()}", reflection)
@@ -1011,7 +818,7 @@ def rocky_worker_loop():
             logger.error(f"[WORKER] loop error: {e}")
         time.sleep(interval)
 
-# 📊 Save daily/hourly reports        
+
 def save_report(acc: str, period: str):
     msgs = fetch_thread_messages(acc, f"{acc}::default")
     reflections = [m for m in msgs if "REFLECTION" in m.get("content", "")]
@@ -1019,10 +826,11 @@ def save_report(acc: str, period: str):
         "time": now_iso(),
         "total_msgs": len(msgs),
         "total_reflections": len(reflections),
-        "highlights": reflections[-3:],  # last few
+        "highlights": reflections[-3:],
     }
     remember_data(acc, f"report::{period}::{now_iso()}", report)
     logger.info(f"[REPORT] Saved {period} report for {acc}")
+
 
 def start_worker_if_needed():
     if os.getenv("ROCKY_AUTONOMOUS", "0") == "1":
@@ -1030,12 +838,13 @@ def start_worker_if_needed():
         t.start()
         logger.info("🚀 Rocky Autonomous Worker started")
 
-# Ensure worker starts when module imported (e.g. uvicorn)
+# start optional background features
 start_worker_if_needed()
-# Start keepalive loop in background thread
 if RENDER_EXTERNAL_URL:
-    threading.Thread(target=start_keepalive, daemon=True).start()
-    logger.info("🚀 Keepalive loop started")
+    try:
+        threading.Thread(target=start_keepalive, daemon=True).start()
+        logger.info("🚀 Keepalive loop started")
+    except Exception:
+        logger.warning("⚠️ Keepalive not started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
-
