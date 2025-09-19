@@ -568,20 +568,21 @@ class RockyAgent:
                 messages=[
                     {"role": "system", "content": "You are ALADDIN, a problem-solver."},
                     {"role": "user", "content": prompt},
-               ],
-               max_tokens=400,
-               temperature=0.7
-          )
-          reply = resp["choices"][0]["message"]["content"].strip()
-  except Exception as e:   # FIX: align with try
-         reply += f"\n(LLM escalation failed: {e})"
-        if self.personality.get("signature"):
-         reply = f"{reply} {self.personality['signature']}"
-        if self.personality.get("style") == "cofounder-high-energy":
-         reply = reply.upper()
+                ],
+                max_tokens=400,
+                temperature=0.7
+            )
+            reply = resp["choices"][0]["message"]["content"].strip()
+        except Exception as e:   # FIX: align with try
+            reply += f"\n(LLM escalation failed: {e})"
+    if self.personality.get("signature"):
+        reply = f"{reply} {self.personality['signature']}"
+    if self.personality.get("style") == "cofounder-high-energy":
+        reply = reply.upper()
 
-        self._log_assistant(reply)
-        return reply
+    self._log_assistant(reply)
+    return reply
+
 # ----------------- FastAPI -----------------
 if HAS_FASTAPI:
     app = FastAPI(title="Rocky Soulmode API", version="v∞")
@@ -866,6 +867,7 @@ def rocky_worker_loop():
         except Exception as e:
             logger.error(f"[WORKER] loop error: {e}")
         time.sleep(interval)
+
 # 📊 Save daily/hourly reports        
 def save_report(acc: str, period: str):
     msgs = fetch_thread_messages(acc, f"{acc}::default")
@@ -893,17 +895,3 @@ if RENDER_EXTERNAL_URL:
     logger.info("🚀 Keepalive loop started")
 else:
     logger.warning("⚠️ Keepalive not started because RENDER_EXTERNAL_URL is missing")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
