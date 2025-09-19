@@ -1,12 +1,15 @@
 # rocky_soulmode_api.py
-"""
-Corrected and cleaned version of rocky_soulmode_api.py
-- Fixed indentation and duplicated/garbled methods in RockyAgent
-- Made Firestore & optional deps imports safe (won't crash if libs missing)
-- Kept original API surface (FastAPI endpoints) where possible
-- Safe keepalive/httpx/pytz imports inside runtime functions to avoid import-time failures
-- Implemented a clear, test-friendly RockyAgent.reply flow (saves extracted facts like "name")
-"""
+import logging
+
+def safe_reply(reply, fallback="⚠️ I didn’t understand that."):
+    """
+    Ensures 'reply' is always safe to return.
+    Logs a warning if fallback is used.
+    """
+    if reply is None:
+        logging.warning("⚠️ safe_reply triggered fallback (reply was None)")
+        return fallback
+    return reply
 
 import os
 import re
@@ -985,3 +988,4 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
