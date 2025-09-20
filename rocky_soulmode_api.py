@@ -746,7 +746,6 @@ if HAS_FASTAPI:
         if "@" in account:
             remember_data(account, "email", account)
         return {"status": "logged_in", "account": account}
-    }
 
     @app.post("/logout/{account}")
     def api_logout(account: str):
@@ -1050,6 +1049,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
