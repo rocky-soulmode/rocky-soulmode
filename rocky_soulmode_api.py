@@ -718,8 +718,8 @@ if HAS_FASTAPI:
             raise HTTPException(status_code=404, detail="not found")
         return doc
 
-     @app.post("/login/{account}")
-     def api_login(account: str):
+    @app.post("/login/{account}")
+    def api_login(account: str):
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
@@ -1031,6 +1031,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
