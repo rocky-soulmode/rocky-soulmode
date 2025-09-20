@@ -458,6 +458,8 @@ class RockyAgent:
             r"^(brofix|brocorrect|fix|not correct)$": "bronotcorrect",
             r"^(rpt|report|reports)$": "reports",
             r"^(addlast|alast|savelast|slast|storelast|stlast)$": "addlast",
+            r"^(broimmortal|immortal personality|immortal)$": "broimmortal",
+            r"^(broghost|ghost personality|ghost)$": "broghost",
         }
 
         # 1) Direct regex match on whole line
@@ -614,7 +616,24 @@ class RockyAgent:
 
         # If not a command → normal reply pipeline
         return self._normal_reply_flow(msg, auto_save=auto_save, use_llm=use_llm)
-
+        
+        if cmd == "broimmortal":
+            new = elevate_personality(self.account, level="immortal")
+            self.personality = new
+            reply = "♾️ Personality elevated to IMMORTAL (ultra-dominant, legacy mode)."
+            remember_data(self.account, f"personality_log::{now_iso()}", {"action": "immortal", "traits": new})
+            self._log_assistant(reply)
+            return reply
+          
+        if cmd == "broghost":
+            new = {**DEFAULT_PERSONALITY, **GHOST_PERSONALITY}
+            self.personality = new
+            set_personality(self.account, new)
+            reply = "👻 Personality shifted to GHOST (minimal, observer mode)."
+            remember_data(self.account, f"personality_log::{now_iso()}", {"action": "ghost", "traits": new})
+            self._log_assistant(reply)
+            return reply
+ 
     # ----------------- Fact Helpers -----------------
     def _forget_fact(self, key: str):
         if not key:
@@ -1031,6 +1050,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
