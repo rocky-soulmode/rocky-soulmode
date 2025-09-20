@@ -369,16 +369,20 @@
     if (!account) return;
     try {
       const API = (window.Rocky && window.Rocky.API_BASE) ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-      await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      if (!silent) appendAssistant(`✅ Agent synced: ${msg}`);
-    } catch {
-      if (!silent) appendAssistant('⚠ Agent sync failed (offline)');
-    }
+      const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message })
+  });
+  const j = await res.json();
+  if (j && j.reply) {
+  appendAssistant(`${j.personality?.signature || ''} ${j.reply}`);
   }
+
+  } else {
+  appendAssistant("⚠ No reply from agent");
+  }
+        }
 
   // Restore toggle states (backend → local fallback)
   async function restorePersonalityFlags(silent=false) {
@@ -390,6 +394,9 @@
       const highest = resHighest.ok ? (await resHighest.json()).value || (await resHighest.json()) : null;
       const resImmortal = await fetch(`${API}/recall/${encodeURIComponent(account)}/immortalPers`);
       const immortal = resImmortal.ok ? (await resImmortal.json()).value || (await resImmortal.json()) : null;
+      const ghost = await fetchJSON(`${API}/recall/${encodeURIComponent(account)}/ghostPers`);
+      $('ghostPers').checked = !!(ghost?.value || ghost);
+      if ($('ghostPers').checked) await pingAgent('bro ghost', true);
 
       if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!(highest?.value || highest);
       if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!(immortal?.value || immortal);
@@ -430,7 +437,7 @@
       if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
       else console.log(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
       await setPersonalityFlag("immortalPers", on);
-      await pingAgent(on ? 'bro personality immortal' : 'bro personality reset');
+      await pingAgent(on ? 'bro immortal' : 'bro personality reset');
     });
   }
   
@@ -1337,4 +1344,5 @@ if (typeof firebase !== 'undefined' && firebase && firebase.initializeApp) {
 
 </body>
 </html>
+
 
