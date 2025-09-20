@@ -719,7 +719,7 @@ if HAS_FASTAPI:
         return doc
 
      @app.post("/login/{account}")
-    def api_login(account: str):
+     def api_login(account: str):
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
@@ -737,7 +737,7 @@ if HAS_FASTAPI:
             remember_data(account, f"archive::{now_iso()}", {"thread": msgs})
         return {"status": "logged_out"}
 
-        @app.post("/session")
+    @app.post("/session")
     def api_session(payload: Dict[str, Any]):
         account = payload.get("account")
         if not account:
@@ -769,7 +769,7 @@ if HAS_FASTAPI:
     def api_scan(body: ScanReq):
         return scan_and_respond(body.account, body.thread_id, body.query, body.max_context_messages or 10, body.use_llm or False)
 
-     def api_sync_local(account: str, payload: Dict[str, Any]):
+    def api_sync_local(account: str, payload: Dict[str, Any]):
         # Merge local memories
         for k, v in (payload.get("memories") or {}).items():
             remember_data(account, k, v.get("value") if isinstance(v, dict) else v)
@@ -1017,5 +1017,6 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
