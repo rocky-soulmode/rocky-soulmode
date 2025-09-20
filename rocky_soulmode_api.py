@@ -718,12 +718,16 @@ if HAS_FASTAPI:
             raise HTTPException(status_code=404, detail="not found")
         return doc
 
-    @app.post("/login/{account}")
+     @app.post("/login/{account}")
     def api_login(account: str):
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
-        return {"status": "logged_in"}
+        # auto-store email if account looks like an email
+        if "@" in account:
+            remember_data(account, "email", account)
+        return {"status": "logged_in", "account": account}
+}
 
     @app.post("/logout/{account}")
     def api_logout(account: str):
@@ -732,6 +736,20 @@ if HAS_FASTAPI:
         if msgs:
             remember_data(account, f"archive::{now_iso()}", {"thread": msgs})
         return {"status": "logged_out"}
+
+        @app.post("/session")
+    def api_session(payload: Dict[str, Any]):
+        account = payload.get("account")
+        if not account:
+            raise HTTPException(status_code=400, detail="Missing account")
+        # init personality if not set
+        if not recall_data(account, "personality"):
+            set_personality(account, DEFAULT_PERSONALITY)
+        remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
+        # store email if looks valid
+        if "@" in account:
+            remember_data(account, "email", account)
+        return {"status": "session_active", "account": account}
 
     @app.delete("/forget/{account}/{key}")
     def api_forget(account: str, key: str):
@@ -751,12 +769,21 @@ if HAS_FASTAPI:
     def api_scan(body: ScanReq):
         return scan_and_respond(body.account, body.thread_id, body.query, body.max_context_messages or 10, body.use_llm or False)
 
+     def api_sync_local(account: str, payload: Dict[str, Any]):
+        # Merge local memories
+        for k, v in (payload.get("memories") or {}).items():
+            remember_data(account, k, v.get("value") if isinstance(v, dict) else v)
+        # Merge local threads
+        for tid, msgs in (payload.get("threads") or {}).items():
+            log_thread(account, tid, msgs)
+        return {"status": "synced", "memories": len(payload.get("memories", {})), "threads": len(payload.get("threads", {}))}
+         
     @app.post("/agent/{account}")
     def api_agent(account: str, payload: Dict[str, Any]):
         message = payload.get("message", "")
         agent = RockyAgent(account)
-        reply = agent.reply(message)
-        return {"reply": reply}
+        reply = agent.reply(message, auto_save=True, use_llm=payload.get("use_llm", False))
+        return {"reply": reply, "personality": agent.personality}
 
     @app.get("/chat_ui.html")
     def serve_ui():
@@ -764,6 +791,8 @@ if HAS_FASTAPI:
         if os.path.exists(path):
             return FileResponse(path)
         return {"detail": "chat_ui.html not found"}
+        @app.post("/sync_local/{account}")
+        
 
 # ----------------- Demo -----------------
 def run_demo():
@@ -988,4 +1017,5 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
