@@ -319,16 +319,16 @@
               <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1"/>
             </div>
 
-      <div style="margin-top:12px">
-  <label style="display:block;margin-bottom:6px">
-    <input type="checkbox" id="highestPers" />
-    ⚡ Highest Personality
-  </label>
-  <label style="display:block">
-    <input type="checkbox" id="immortalPers" />
-    ♾️ Immortal Personality
-  </label>
+     <div style="margin-top:12px">
+  <label class="small" for="personalitySel">Personality Mode</label>
+  <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
+    <option value="default">🌐 Default</option>
+    <option value="highest">⚡ Highest</option>
+    <option value="immortal">♾️ Immortal</option>
+    <option value="ghost">👻 Ghost</option>
+  </select>
 </div>
+
 <script>
   // Save toggle state to backend/local
   async function setPersonalityFlag(flag, value) {
@@ -433,6 +433,104 @@
       await pingAgent(on ? 'bro personality immortal' : 'bro personality reset');
     });
   }
+  
+  // Ghost Personality toggle
+const ghostPersEl = document.getElementById('ghostPers');
+if (ghostPersEl) {
+  ghostPersEl.addEventListener('change', async e => {
+    const account = localStorage.getItem('rocky_account') || '';
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') {
+      window.Rocky.appendAssistant(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
+    } else {
+      console.log(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
+    }
+    await setPersonalityFlag("ghostPers", on);
+    await pingAgent(on ? 'bro ghost' : 'bro personality reset');
+  });
+}
+  
+<script>
+  // Save active personality flag
+  async function setPersonalityFlag(flag, value) {
+    const account = localStorage.getItem('rocky_account') || '';
+    if (!account) return;
+    try {
+      await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/remember`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, key: flag, value })
+      });
+    } catch {
+      const LOCAL_PREFIX = 'rocky_local::';
+      const raw = localStorage.getItem(LOCAL_PREFIX + account);
+      const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
+      p.memories[flag] = { value, timestamp: new Date().toISOString() };
+      localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
+    }
+  }
+
+  async function pingAgent(msg, silent=false) {
+    const account = localStorage.getItem('rocky_account') || '';
+    if (!account) return;
+    try {
+      await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/agent/${encodeURIComponent(account)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      if (!silent) window.Rocky.appendAssistant(`✅ Agent synced: ${msg}`);
+    } catch {
+      if (!silent) window.Rocky.appendAssistant('⚠ Agent sync failed (offline)');
+    }
+  }
+
+  // Personality selector handler
+  const sel = document.getElementById('personalitySel');
+  if (sel) {
+    sel.addEventListener('change', async e => {
+      const val = e.target.value;
+      let cmd = '';
+      if (val === 'highest') cmd = 'bro personality highest';
+      if (val === 'immortal') cmd = 'bro immortal';
+      if (val === 'ghost') cmd = 'bro ghost';
+      if (val === 'default') cmd = 'bro personality reset';
+      if (cmd) {
+        await setPersonalityFlag('activePersonality', val);
+        await pingAgent(cmd);
+        window.Rocky.appendAssistant(`🔄 Personality switched to ${val.toUpperCase()}`);
+      }
+    });
+  }
+
+  // Restore from memory on login
+  async function restorePersonalityDropdown() {
+    const account = localStorage.getItem('rocky_account') || '';
+    if (!account) return;
+    try {
+      const res = await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/recall/${encodeURIComponent(account)}/activePersonality`);
+      if (res.ok) {
+        const j = await res.json();
+        const mode = j.value || j;
+        if (sel && mode) {
+          sel.value = mode;
+          sel.dispatchEvent(new Event('change')); // auto-apply
+        }
+      }
+    } catch {
+      // fallback to local
+      const local = JSON.parse(localStorage.getItem('rocky_local::' + account) || '{}');
+      if (local.memories && local.memories.activePersonality) {
+        sel.value = local.memories.activePersonality.value || local.memories.activePersonality;
+        sel.dispatchEvent(new Event('change'));
+      }
+    }
+  }
+
+  // call restore after login
+  document.addEventListener('DOMContentLoaded', restorePersonalityDropdown);
+</script>
 
   // Manual restore via Load Personality button
   const loadPersBtn = document.getElementById('loadPers');
@@ -1239,3 +1337,4 @@ if (typeof firebase !== 'undefined' && firebase && firebase.initializeApp) {
 
 </body>
 </html>
+
