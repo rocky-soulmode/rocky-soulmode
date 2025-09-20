@@ -827,7 +827,7 @@ if HAS_FASTAPI:
         
 
 # ----------------- Demo -----------------
-def run_demo():
+    def run_demo():
     print("Running Rocky Soulmode local demo (no network).")
     acc = "demo_user"
     agent = RockyAgent(acc)
@@ -1049,6 +1049,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
