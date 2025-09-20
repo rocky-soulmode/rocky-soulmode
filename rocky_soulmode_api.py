@@ -769,14 +769,28 @@ if HAS_FASTAPI:
     def api_scan(body: ScanReq):
         return scan_and_respond(body.account, body.thread_id, body.query, body.max_context_messages or 10, body.use_llm or False)
 
+    @app.post("/sync_local/{account}")
     def api_sync_local(account: str, payload: Dict[str, Any]):
+        """
+        Merge local memories & threads sent from frontend into backend storage.
+        """
         # Merge local memories
         for k, v in (payload.get("memories") or {}).items():
             remember_data(account, k, v.get("value") if isinstance(v, dict) else v)
+
         # Merge local threads
         for tid, msgs in (payload.get("threads") or {}).items():
-            log_thread(account, tid, msgs)
-        return {"status": "synced", "memories": len(payload.get("memories", {})), "threads": len(payload.get("threads", {}))}
+            try:
+                log_thread(account, tid, msgs)
+            except Exception as e:
+                logger.warning(f"[SYNC] Failed to log thread {tid}: {e}")
+
+        return {
+            "status": "synced",
+            "memories": len(payload.get("memories", {})),
+            "threads": len(payload.get("threads", {}))
+        }
+
          
     @app.post("/agent/{account}")
     def api_agent(account: str, payload: Dict[str, Any]):
@@ -1017,6 +1031,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
