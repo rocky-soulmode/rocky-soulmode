@@ -6,13 +6,13 @@ services:
     dockerContext: .
     dockerfilePath: ./Dockerfile
     autoDeploy: true
-     healthCheckPath: /test/selfcheck
+    healthCheckPath: /test/selfcheck
     healthCheckInterval: 600   # every 10 minutes
     envVars:
       - key: GOOGLE_APPLICATION_CREDENTIALS
         value: /app/service-account.json
       - key: OPENAI_API_KEY
-        sync: false   # set in Render dashboard
+        sync: false   # set this manually in Render dashboard
       - key: ROCKY_ALLOW_SERVER
         value: "1"
       - key: ROCKY_AUTONOMOUS
@@ -25,4 +25,7 @@ services:
         value: "1"
       - key: ROCKY_MEMORY_TTL
         value: "90d"
-
+      - key: UPSTASH_REDIS_REST_URL
+        value: https://bright-aardvark-8251.upstash.io
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false   # set manually in Render dashboard
