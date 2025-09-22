@@ -950,8 +950,7 @@ if HAS_FASTAPI:
         if os.path.exists(path):
             return FileResponse(path)
         return {"detail": "chat_ui.html not found"}
-        @app.post("/sync_local/{account}")
-        
+      
 
 # ----------------- Demo -----------------
     def run_demo():
@@ -1176,6 +1175,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
