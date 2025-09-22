@@ -6,4 +6,4 @@ requests
 openai
 httpx
 pytz
-
+redis
