@@ -808,7 +808,7 @@ if (ghostPersEl) {
     const bulkBtn = $('deleteSelected');
     if (bulkBtn) {
       bulkBtn.addEventListener('click', async () => {
-        const selected = [...document.querySelectorAll('.memCheck:checked')].map(cb => cb.dataset.key);
+        const selected = [..document.querySelectorAll('.memCheck:checked')].map(cb => cb.dataset.key);
         if (!selected.length) return alert('No memories selected');
         if (!confirm(`Delete ${selected.length} memories?`)) return;
         for (const key of selected) {
@@ -1265,6 +1265,3 @@ if ($('creativity') && $('creativityLabel')) {
 }
 </body>
 </html>
-
-
-
