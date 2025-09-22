@@ -953,15 +953,15 @@ if HAS_FASTAPI:
       
 
 # ----------------- Demo -----------------
-def run_demo():
-    print("Running Rocky Soulmode local demo (no network).")
-    acc = "demo_user"
-    agent = RockyAgent(acc)
-    print("User ->: My name is Alex.")
-    print("Agent ->:", agent.reply("My name is Alex."))
-    print("User ->: What's my name?")
-    print("Agent ->:", agent.reply("What's my name?"))
-    print("Exported memories:\n", json.dumps(export_all(acc), indent=2))
+    def run_demo():
+        print("Running Rocky Soulmode local demo (no network).")
+        acc = "demo_user"
+        agent = RockyAgent(acc)
+        print("User ->: My name is Alex.")
+        print("Agent ->:", agent.reply("My name is Alex."))
+        print("User ->: What's my name?")
+        print("Agent ->:", agent.reply("What's my name?"))
+        print("Exported memories:\n", json.dumps(export_all(acc), indent=2))
 
 # ----------------- Tests -----------------
 class CoreTests(unittest.TestCase):
@@ -1175,6 +1175,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
