@@ -134,7 +134,6 @@
         <input id="email" type="email" placeholder="you@domain.com" aria-label="Account email" >
         <button class="btn btn-ghost" id="login">Login</button>
         <button class="btn btn-ghost" id="logout" style="display:none">Logout</button>
-        <!-- Open Settings (modal) removed — settings live in side panel now -->
       </div>
     </header>
 
@@ -161,6 +160,7 @@
           </div>
         </div>
       </div>
+
       <!-- Memory Panel -->
       <div id="memoryPanel" class="panel hidden" style="flex:1">
         <div class="panel" style="padding:12px">
@@ -199,101 +199,21 @@
           </div>
         </div>
       </div>
-      <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="margin-top:8px"></textarea>
-<button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
 
-<script>
-/*
-  Small, safe handler for the "Add Multiple" button placed directly after the button in the DOM.
-  This uses only standard DOM APIs (no $ helper) and attempts to call the app's fetch/persistence
-  helpers if they are available on window.Rocky. If the app helpers are not yet present, this
-  gracefully falls back to localStorage.
-*/
-(function(){
-  const btn = document.getElementById('bulkAddBtn');
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return alert('Login first');
-    const textEl = document.getElementById('bulkMemories');
-    const text = (textEl && textEl.value || '').trim();
-    if (!text) return;
-
-    let mems = [];
-    try {
-      if (text.trim().startsWith('{')) {
-        const obj = JSON.parse(text);
-        mems = Object.entries(obj);
-      } else {
-        mems = text.split('\n').map(l => l.split(':')).filter(a => a.length >= 2);
-      }
-    } catch (e) {
-      return alert('Invalid format — use JSON or key:value per line');
-    }
-
-    for (const [k, v] of mems) {
-      try {
-        // Prefer app-provided fetchJSON if available
-        if (window.Rocky && typeof window.Rocky.fetchJSON === 'function') {
-          await window.Rocky.fetchJSON(`${window.Rocky.API_BASE || ''}/remember`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
-          });
-        } else {
-          // fallback to fetch; note API constant may not be present — best-effort
-          const API = window.Rocky && window.Rocky.API_BASE ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-          await fetch(`${API}/remember`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
-          });
-        }
-      } catch (err) {
-        // fallback: save locally if server/save fails
-        try {
-          if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-            window.Rocky.pushLocalMemory(account, k.trim(), v.toString().trim());
-          } else {
-            const LOCAL_PREFIX = 'rocky_local::';
-            const raw = localStorage.getItem(LOCAL_PREFIX + account);
-            const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
-            p.memories = p.memories || {};
-            p.memories[k.trim()] = { value: v.toString().trim(), timestamp: (new Date()).toISOString() };
-            localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
-          }
-        } catch (e2) {
-          console.warn('Bulk add local fallback failed', e2);
-        }
-      }
-    }
-
-    if (textEl) textEl.value = '';
-    // Prefer in-app appendAssistant or fallback to alert
-    if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') {
-      window.Rocky.appendAssistant(`✅ Added ${mems.length} memories`);
-    } else {
-      alert(`✅ Added ${mems.length} memories`);
-    }
-
-    // Try to refresh memory list if possible
-    try {
-      if (window.Rocky && typeof window.Rocky.loadMemories === 'function') {
-        await window.Rocky.loadMemories();
-      }
-    } catch (e) { /* ignore */ }
-  });
-})();
-</script>
+      <!-- Small area for bulk add -->
+      <div style="flex-basis:100%; margin-top:8px; display:flex; gap:8px; align-items:flex-start;">
+        <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="flex:1; min-height:78px"></textarea>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
+        </div>
+      </div>
 
       <!-- Settings Panel -->
       <div id="settingsPanel" class="panel hidden" style="flex:1">
-        <!-- Moved modal contents here so a separate modal is no longer needed -->
         <h3 id="settings-title">⚙️ Settings & Customize ChatGPT</h3>
         <div class="small">Personalize assistant & advanced options (inline)</div>
 
         <div style="display:flex;gap:18px;margin-top:12px">
-          <!-- left: personalization -->
           <div style="flex:1">
             <div style="margin-bottom:8px"><strong>Personality</strong></div>
             <div class="row" style="gap:10px">
@@ -320,215 +240,60 @@
               <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1">
             </div>
 
-     <div style="margin-top:12px">
-  <label class="small" for="personalitySel">Personality Mode</label>
-  <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
-    <option value="default">🌐 Default</option>
-    <option value="highest">⚡ Highest</option>
-    <option value="immortal">♾️ Immortal</option>
-    <option value="ghost">👻 Ghost</option>
-  </select>
+            <div style="margin-top:12px">
+              <label class="small" for="personalitySel">Personality Mode</label>
+              <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
+                <option value="default">🌐 Default</option>
+                <option value="highest">⚡ Highest</option>
+                <option value="immortal">♾️ Immortal</option>
+                <option value="ghost">👻 Ghost</option>
+              </select>
+            </div>
+
+            <div style="margin-top:12px" class="row">
+              <label class="small">Quick Toggles</label>
+              <div style="display:flex; gap:8px;">
+                <label><input type="checkbox" id="highestPers"> Highest</label>
+                <label><input type="checkbox" id="immortalPers"> Immortal</label>
+                <label><input type="checkbox" id="ghostPers"> Ghost</label>
+              </div>
+            </div>
+
+            <div style="margin-top:12px">
+              <button class="btn btn-primary" id="savePers">Save Personality</button>
+              <button class="btn btn-ghost" id="loadPers">Load Personality</button>
+            </div>
+          </div>
+
+          <div style="flex:1">
+            <div style="margin-bottom:8px"><strong>Advanced</strong></div>
+            <div class="small">System prompt & LLM options</div>
+            <div style="margin-top:8px">
+              <textarea id="systemPrompt" rows="6" placeholder="Optional system prompt for LLM" style="width:100%;border-radius:8px;"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="btn btn-ghost" id="savePrompt">Save Prompt</button>
+                <button class="btn btn-ghost" id="clearPrompt">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
 </div>
 
 <script>
-  // Save toggle state to backend/local
-  async function setPersonalityFlag(flag, value) {
-    if (!window.localStorage) return;
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      if (window.Rocky && typeof window.Rocky.fetchJSON === 'function') {
-        await window.Rocky.fetchJSON(`${window.Rocky.API_BASE || ''}/remember`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ account, key: flag, value })
-        });
-      } else {
-        // fallback pushLocalMemory if available
-        if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-          window.Rocky.pushLocalMemory(account, flag, value);
-        } else {
-          const LOCAL_PREFIX = 'rocky_local::';
-          const raw = localStorage.getItem(LOCAL_PREFIX + account);
-          const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
-          p.memories = p.memories || {};
-          p.memories[flag] = { value, timestamp: (new Date()).toISOString() };
-          localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
-        }
-      }
-    } catch (err) {
-      // fallback to local push
-      if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-        window.Rocky.pushLocalMemory(account, flag, value);
-      }
-    }
-  }
-
-  // Ping agent (with optional silent mode)
-  async function pingAgent(msg, silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const API = (window.Rocky && window.Rocky.API_BASE) ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-      const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message })
-  });
-  const j = await res.json();
-  if (j && j.reply) {
-  appendAssistant(`${j.personality?.signature || ''} ${j.reply}`);
-  }
-     }
-
-  // Restore toggle states (backend → local fallback)
-  async function restorePersonalityFlags(silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const API = (window.Rocky && window.Rocky.API_BASE) ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-      const resHighest = await fetch(`${API}/recall/${encodeURIComponent(account)}/highestPers`);
-      const highest = resHighest.ok ? (await resHighest.json()).value || (await resHighest.json()) : null;
-      const resImmortal = await fetch(`${API}/recall/${encodeURIComponent(account)}/immortalPers`);
-      const immortal = resImmortal.ok ? (await resImmortal.json()).value || (await resImmortal.json()) : null;
-      const ghost = await fetchJSON(`${API}/recall/${encodeURIComponent(account)}/ghostPers`);
-      $('ghostPers').checked = !!(ghost?.value || ghost);
-      if ($('ghostPers').checked) await pingAgent('bro ghost', true);
-
-      if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!(highest?.value || highest);
-      if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!(immortal?.value || immortal);
-    } catch {
-      const local = (function(){
-        try { return JSON.parse(localStorage.getItem('rocky_local::' + (localStorage.getItem('rocky_account')||''))) || {memories:{}}; } catch(e) { return {memories:{}}; }
-      })();
-      if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!local.memories?.highestPers;
-      if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!local.memories?.immortalPers;
-    }
-
-    // auto-ping agent silently so GPT is aligned
-    if (document.getElementById('highestPers') && document.getElementById('highestPers').checked) await pingAgent('bro personality highest', silent);
-    if (document.getElementById('immortalPers') && document.getElementById('immortalPers').checked) await pingAgent('bro personality immortal', silent);
-  }
-
-  // Highest Personality toggle
-  const highestPersEl = document.getElementById('highestPers');
-  if (highestPersEl) {
-    highestPersEl.addEventListener('change', async e => {
-      const account = localStorage.getItem('rocky_account') || '';
-      if (!account) return alert('Login first');
-      const on = e.target.checked;
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
-      else console.log(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
-      await setPersonalityFlag("highestPers", on);
-      await pingAgent(on ? 'bro personality highest' : 'bro personality reset');
-    });
-  }
-
-  // Immortal Personality toggle
-  const immortalPersEl = document.getElementById('immortalPers');
-  if (immortalPersEl) {
-    immortalPersEl.addEventListener('change', async e => {
-      const account = localStorage.getItem('rocky_account') || '';
-      if (!account) return alert('Login first');
-      const on = e.target.checked;
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
-      else console.log(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
-      await setPersonalityFlag("immortalPers", on);
-      await pingAgent(on ? 'bro immortal' : 'bro personality reset');
-    });
-  }
-  
-  // Ghost Personality toggle
-const ghostPersEl = document.getElementById('ghostPers');
-if (ghostPersEl) {
-  ghostPersEl.addEventListener('change', async e => {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return alert('Login first');
-    const on = e.target.checked;
-    if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') {
-      window.Rocky.appendAssistant(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
-    } else {
-      console.log(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
-    }
-    await setPersonalityFlag("ghostPers", on);
-    await pingAgent(on ? 'bro ghost' : 'bro personality reset');
-  });
-}
-
-    async function pingAgent(msg, silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/agent/${encodeURIComponent(account)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      if (!silent) window.Rocky.appendAssistant(`✅ Agent synced: ${msg}`);
-    } catch {
-      if (!silent) window.Rocky.appendAssistant('⚠ Agent sync failed (offline)');
-    }
-  }
-
-  // Personality selector handler
-  const sel = document.getElementById('personalitySel');
-  if (sel) {
-    sel.addEventListener('change', async e => {
-      const val = e.target.value;
-      let cmd = '';
-      if (val === 'highest') cmd = 'bro personality highest';
-      if (val === 'immortal') cmd = 'bro immortal';
-      if (val === 'ghost') cmd = 'bro ghost';
-      if (val === 'default') cmd = 'bro personality reset';
-      if (cmd) {
-        await setPersonalityFlag('activePersonality', val);
-        await pingAgent(cmd);
-        window.Rocky.appendAssistant(`🔄 Personality switched to ${val.toUpperCase()}`);
-      }
-    });
-  }
-
-  // Restore from memory on login
-  async function restorePersonalityDropdown() {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const res = await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/recall/${encodeURIComponent(account)}/activePersonality`);
-      if (res.ok) {
-        const j = await res.json();
-        const mode = j.value || j;
-        if (sel && mode) {
-          sel.value = mode;
-          sel.dispatchEvent(new Event('change')); // auto-apply
-        }
-      }
-    } catch {
-      // fallback to local
-      const local = JSON.parse(localStorage.getItem('rocky_local::' + account) || '{}');
-      if (local.memories && local.memories.activePersonality) {
-        sel.value = local.memories.activePersonality.value || local.memories.activePersonality;
-        sel.dispatchEvent(new Event('change'));
-      }
-    }
-  }
-
-  // call restore after login
-  document.addEventListener('DOMContentLoaded', restorePersonalityDropdown);
-</script>
-
-<script>
 /* =========================
-   Production-ready JS (fixed)
-   - grouped into a single IIFE so helpers are defined before use
-   - exported a few helpers via window.Rocky for earlier handlers
-   - removed top-level await calls
+   Main UI + client logic (single consolidated script)
+   - exposes window.Rocky.* helpers used by inline handlers
+   - robust against server offline
    ========================= */
-
 (() => {
   'use strict';
 
-  // === Config ===
-  const API = 'http://127.0.0.1:8000'; // change if your API lives elsewhere
+  const API = (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:8000' : (window.API || 'http://127.0.0.1:8000');
   const LOCAL_PREFIX = 'rocky_local::';
   let account = localStorage.getItem('rocky_account') || '';
   let serverAlive = false;
@@ -536,27 +301,29 @@ if (ghostPersEl) {
   let currentPage = 1;
   let pageSize = parseInt(document.getElementById('pageSize').value || '8', 10);
   let valuePageSize = parseInt(document.getElementById('valuePageSize').value || '1200', 10);
-  let modalChunks = [], modalIndex = 0;
-  let systemPromptSaved = '';
 
-  // expose API base for other scripts
-  window.Rocky = window.Rocky || {};
-  window.Rocky.API_BASE = API;
-
-  // === Short helpers ===
+  // Lightweight selectors
   const $ = id => document.getElementById(id);
   const esc = s => s == null ? '' : String(s);
   const nowISO = () => (new Date()).toISOString();
   const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
 
-  function chunkString(s, n) {
-    if (!s) return [];
-    const out = [];
-    for (let i = 0; i < s.length; i += n) out.push(s.slice(i, i + n));
-    return out;
+  // network-aware fetch helper
+  async function fetchJSON(url, opts = {}) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${res.status} ${res.statusText} ${text ? ' - ' + text : ''}`);
+    }
+    const ct = res.headers.get('content-type') || '';
+    return ct.includes('application/json') ? await res.json() : null;
   }
 
-  // === UI helpers ===
+  window.Rocky = window.Rocky || {};
+  window.Rocky.API_BASE = API;
+  window.Rocky.fetchJSON = fetchJSON;
+
+  // UI helpers
   function setServerStatus(ok) {
     serverAlive = !!ok;
     const srv = $('srv');
@@ -579,10 +346,9 @@ if (ghostPersEl) {
       if ($('curAccount')) $('curAccount').textContent = '(not logged)';
     }
   }
-
   showLoginUI();
 
-  // === Server ping (debounced / safe) ===
+  // periodic server check
   async function checkServer() {
     try {
       const r = await fetch(API + '/', { method: 'HEAD' });
@@ -591,71 +357,35 @@ if (ghostPersEl) {
       setServerStatus(false);
     }
 
-    // auto sync if enabled
     try {
-      const autoEl = document.getElementById('autoSync');
-      if (serverAlive && account && (autoEl && autoEl.checked)) {
+      const auto = document.getElementById('autoSync');
+      if (serverAlive && account && (auto && auto.value === "true")) {
         tryAutoSync();
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {}
   }
-  // faster but safe interval
   setInterval(checkServer, 3500);
   checkServer();
 
-  // === Safe fetch wrapper ===
-  async function fetchJSON(url, opts = {}) {
-    try {
-      const res = await fetch(url, opts);
-      if (!res.ok) {
-        // bubble up but include status text
-        const text = await res.text().catch(() => '');
-        throw new Error(`${res.status} ${res.statusText} ${text ? ' - ' + text : ''}`);
-      }
-      // Attempt parse json, fallback to null
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        return await res.json();
-      } else {
-        return null;
-      }
-    } catch (err) {
-      console.warn('fetchJSON failed', url, err);
-      throw err;
-    }
-  }
-
-  // attach to window.Rocky for other inline scripts
-  window.Rocky.fetchJSON = fetchJSON;
-
-  // === Chat helpers (append) ===
+  // Chat append helpers
   function appendUser(text) {
     const d = document.createElement('div');
     d.className = 'msg user';
     d.innerHTML = `<strong>You:</strong> ${esc(text)}`;
     const msgs = $('msgs');
-    if (msgs) {
-      msgs.appendChild(d);
-      msgs.scrollTop = msgs.scrollHeight;
-    }
+    if (msgs) { msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; }
   }
   function appendAssistant(text) {
     const d = document.createElement('div');
     d.className = 'msg assistant';
     d.innerHTML = `<strong>Assistant:</strong> ${esc(text)}`;
     const msgs = $('msgs');
-    if (msgs) {
-      msgs.appendChild(d);
-      msgs.scrollTop = msgs.scrollHeight;
-    } else {
-      console.log('Assistant:', text);
-    }
+    if (msgs) { msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; }
+    else console.log('Assistant:', text);
   }
-
-  // expose appendAssistant
   window.Rocky.appendAssistant = appendAssistant;
 
-  // === Local fallback storage ===
+  // local storage helpers
   function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
   function getLocal(acc) {
     const raw = localStorage.getItem(localStoreKey(acc));
@@ -674,17 +404,13 @@ if (ghostPersEl) {
     p.threads[tid].push(msg);
     localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
   }
-
-  // expose local helpers
   window.Rocky.pushLocalMemory = pushLocalMemory;
   window.Rocky.pushLocalThread = pushLocalThread;
-  window.Rocky.pushLocal = pushLocalMemory; // alias
-  window.Rocky.getLocal = getLocal;
 
-  // === Memory CRUD & UI ===
+  // Memory CRUD & UI
   async function loadMemories(q = null) {
     if (!account) return;
-    const memContainer = document.getElementById('memList');
+    const memContainer = $('memList');
     if (memContainer) memContainer.textContent = 'Loading...';
 
     try {
@@ -718,7 +444,6 @@ if (ghostPersEl) {
       }));
     }
 
-    // paging
     pageSize = parseInt((document.getElementById('pageSize') && document.getElementById('pageSize').value) || pageSize, 10);
     const total = memEntries.length;
     const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -741,7 +466,6 @@ if (ghostPersEl) {
       return;
     }
 
-    // Bulk action bar with Select All
     const bulkBar = document.createElement('div');
     bulkBar.style.marginBottom = '8px';
     bulkBar.innerHTML = `
@@ -785,7 +509,6 @@ if (ghostPersEl) {
       container.appendChild(div);
     });
 
-    // Select All toggle
     const selectAll = $('selectAllMem');
     if (selectAll) {
       selectAll.addEventListener('change', () => {
@@ -794,7 +517,6 @@ if (ghostPersEl) {
       });
     }
 
-    // Multi-delete handler
     const bulkBtn = $('deleteSelected');
     if (bulkBtn) {
       bulkBtn.addEventListener('click', async () => {
@@ -812,7 +534,7 @@ if (ghostPersEl) {
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
 
-  // === Sync local -> server ===
+  // Sync local -> server
   async function tryAutoSync(force = false) {
     if (!account) return;
     const local = getLocal(account);
@@ -837,7 +559,7 @@ if (ghostPersEl) {
   }
   if ($('syncBtn')) $('syncBtn').addEventListener('click', () => tryAutoSync(true));
 
-  // === Search ===
+  // Search
   if ($('searchBtn')) {
     $('searchBtn').addEventListener('click', async () => {
       const q = ($('searchQ').value || '').trim(); currentPage = 1;
@@ -851,7 +573,7 @@ if (ghostPersEl) {
     });
   }
 
-  // === Export ===
+  // Export
   async function triggerExport() {
     if (!account) return alert('Login first');
     try {
@@ -869,7 +591,7 @@ if (ghostPersEl) {
   if ($('exportBtn')) $('exportBtn').addEventListener('click', triggerExport);
   if ($('navExport')) $('navExport').addEventListener('click', triggerExport);
 
-  // === Chat flow (send message, agent) ===
+  // Chat flow
   if ($('messageBox')) {
     $('messageBox').addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -909,7 +631,6 @@ if (ghostPersEl) {
 
   if ($('clearChat')) $('clearChat').addEventListener('click', () => { const m=$('msgs'); if(m) m.innerHTML=''; });
 
-  // Insert last 3 mems into composer
   if ($('refMemsBtn')) {
     $('refMemsBtn').addEventListener('click', () => {
       const slice = memEntries.slice(-3).map(m => `${m.key}: ${m.value}`).join('\n');
@@ -917,211 +638,6 @@ if (ghostPersEl) {
         $('messageBox').value += '\n\n[Ref Memories]\n' + slice;
       }
     });
-  }
-
-  // Small helper to show/hide the inline viewer panel placed inside the settings side panel.
-  function showViewerPanel() {
-    const vp = $('viewerPanel');
-    if (!vp) return;
-    vp.style.display = 'block';
-  }
-  function hideViewerPanel() {
-    const vp = $('viewerPanel');
-    if (!vp) return;
-    vp.style.display = 'none';
-  }
-
-  /* Save/Load personality — extended with agent + creativity */
-  const savePersEl = $('savePers');
-  if (savePersEl) {
-    savePersEl.onclick = async () => {
-      if (!account) {
-        alert('Login first');
-        return;
-      }
-      // ---- Personality UI sync (keep quick + stable in sync) ----
-      if ($('toneSel') && $('toneSelStable')) {
-        $('toneSel').addEventListener('change', e => {
-          $('toneSelStable').value = e.target.value;
-        });
-        $('toneSelStable').addEventListener('change', e => {
-          $('toneSel').value = e.target.value;
-        });
-      }
-
-      if ($('sigInput') && $('sigInputStable')) {
-        $('sigInput').addEventListener('input', e => {
-          $('sigInputStable').value = e.target.value;
-        });
-        $('sigInputStable').addEventListener('input', e => {
-          $('sigInput').value = e.target.value;
-        });
-      }
-
-      // ---- SAVE ----
-      const pers = {
-        agentMode: !!($('agentMode') && $('agentMode').checked),
-        aggressiveness: parseInt($('agentAggressiveness') ? $('agentAggressiveness').value : 5),
-        tone: $('toneSel') ? $('toneSel').value : 'consistent',
-        signature: $('sigInput') ? $('sigInput').value || '' : '',
-        creativity: parseInt($('creativity') ? $('creativity').value : 7),
-      };
-
-      try {
-        await fetch(`${API}/remember`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ account, key: '__personality__', value: pers })
-        });
-        appendAssistant('✅ Stable personality saved');
-      } catch (e) {
-        pushLocalMemory(account, '__personality__', pers);
-        appendAssistant('⚠ Personality saved locally (server offline)');
-      }
-
-      // ---- LOAD / APPLY BACK TO UI ----
-      let loaded = null;
-
-      // 1) Try server first
-      try {
-        const res = await fetch(`${API}/recall/${encodeURIComponent(account)}/__personality__`);
-        if (res.ok) {
-          const j = await res.json();
-          loaded = j.value || j;
-        }
-      } catch (e) {
-        console.warn('Server recall failed', e);
-      }
-
-      // 2) Fallback to local cache
-      if (!loaded) {
-        const local = getLocal(account);
-        if (local.memories && local.memories['__personality__']) {
-          loaded = local.memories['__personality__'].value || local.memories['__personality__'];
-        }
-      }
-
-      // 3) Apply to UI
-      if (loaded) {
-        if (loaded.agentMode !== undefined) { if ($('agentMode')) $('agentMode').checked = !!loaded.agentMode; }
-        if (loaded.aggressiveness !== undefined) { if ($('agentAggressiveness')) $('agentAggressiveness').value = loaded.aggressiveness; }
-        if (loaded.creativity !== undefined) {
-          if ($('creativity')) { $('creativity').value = loaded.creativity; if ($('creativityLabel')) $('creativityLabel').textContent = loaded.creativity; }
-        }
-        if (loaded.tone && $('toneSel')) $('toneSel').value = loaded.tone;
-        if (loaded.signature && $('sigInput')) $('sigInput').value = loaded.signature;
-
-        appendAssistant('✅ Personality loaded');
-      } else {
-        appendAssistant('⚠ No saved personality found');
-      }
-    };
-  }
-
-  if ($('loadPers')) {
-    $('loadPers').addEventListener('click', async () => {
-      if (!account) return alert('Login first');
-      try {
-        const res = await fetch(`${API}/recall/${encodeURIComponent(account)}/__personality__`);
-        if (res.ok) {
-          const j = await res.json();
-          const p = j.value || j;
-          if ($('toneSel')) $('toneSel').value = p.tone || 'consistent';
-          if ($('styleSel')) $('styleSel').value = p.style || 'cofounder-high-energy';
-          if ($('sigInput')) $('sigInput').value = p.signature || '💎🔥';
-          appendAssistant('Personality loaded from server');
-          return;
-        }
-      } catch (e) { /* ignore */ }
-      const local = getLocal(account);
-      const p = (local.memories && local.memories['__personality__'] && local.memories['__personality__'].value) || null;
-      if (p) {
-        if ($('toneSel')) $('toneSel').value = p.tone || 'consistent';
-        if ($('styleSel')) $('styleSel').value = p.style || 'cofounder-high-energy';
-        if ($('sigInput')) $('sigInput').value = p.signature || '💎🔥';
-        appendAssistant('Loaded personality locally');
-      } else appendAssistant('No saved personality found');
-    });
-  }
-
-  // system prompt
-  if ($('savePrompt')) {
-    $('savePrompt').addEventListener('click', () => {
-      systemPromptSaved = $('systemPrompt').value || '';
-      appendAssistant('System prompt saved (applies when LLM enabled)');
-    });
-  }
-  if ($('clearPrompt')) {
-    $('clearPrompt').addEventListener('click', () => {
-      if ($('systemPrompt')) $('systemPrompt').value = '';
-      systemPromptSaved = '';
-      appendAssistant('System prompt cleared');
-    });
-  }
-
-  // agent runner (guarded in case runAgentOnce button is not present)
-  const runAgentOnceEl = $('runAgentOnce');
-  if (runAgentOnceEl) {
-    runAgentOnceEl.addEventListener('click', async () => {
-      if (!account) return alert('Login first');
-      const local = getLocal(account);
-      const last = (local.threads && local.threads['session'] && local.threads['session'].slice(-1)[0]) || null;
-      if (!last) return alert('No session messages to run agent on');
-      try {
-        const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: last.content, use_llm: false })
-        });
-        const j = await res.json();
-        appendAssistant(j.reply || j.suggested_reply || '[no reply]');
-      } catch (e) {
-        appendAssistant('[Agent run failed — offline]');
-      }
-    });
-  }
-
-  // lightweight login/logout handlers
-  if ($('login')) {
-    $('login').addEventListener('click', () => {
-      const email = ($('email') && $('email').value || '').trim();
-      if (!email) return alert('Enter an email to login');
-      account = email;
-      localStorage.setItem('rocky_account', account);
-      showLoginUI();
-      appendAssistant(`✅ Logged in as ${account}`);
-      setTimeout(() => loadMemories(), 150);
-      restorePersonalityDropdown();
-    });
-  }
-  if ($('logout')) {
-    $('logout').addEventListener('click', () => {
-      localStorage.removeItem('rocky_account');
-      account = '';
-      showLoginUI();
-      appendAssistant('🔒 Logged out');
-    });
-  }
-
-  // small helpers referenced earlier but defined here (forgetMem/openViewer)
-  async function forgetMem(key) {
-    if (!account) return alert('Login first');
-    if (!confirm(`Forget memory "${key}"?`)) return;
-    try {
-      if (serverAlive) {
-        await fetchJSON(`${API}/forget/${encodeURIComponent(account)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
-      } else {
-        // remove local
-        const p = getLocal(account);
-        delete p.memories[key];
-        localStorage.setItem(localStoreKey(account), JSON.stringify(p));
-      }
-      appendAssistant(`🗑 Forgot "${key}"`);
-      await loadMemories();
-    } catch (e) {
-      console.warn('forgetMem failed', e);
-      alert('Forget failed');
-    }
   }
 
   function openViewer(it) {
@@ -1144,20 +660,257 @@ if (ghostPersEl) {
     msgs.scrollTop = msgs.scrollHeight;
   }
 
-  // pagination controls
+  // forget memory
+  async function forgetMem(key) {
+    if (!account) return alert('Login first');
+    if (!confirm(`Forget memory "${key}"?`)) return;
+    try {
+      if (serverAlive) {
+        await fetchJSON(`${API}/forget/${encodeURIComponent(account)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      } else {
+        const p = getLocal(account);
+        delete p.memories[key];
+        localStorage.setItem(localStoreKey(account), JSON.stringify(p));
+      }
+      appendAssistant(`🗑 Forgot "${key}"`);
+      await loadMemories();
+    } catch (e) {
+      console.warn('forgetMem failed', e);
+      alert('Forget failed');
+    }
+  }
+  window.Rocky.forgetMem = forgetMem;
+  window.Rocky.openViewer = openViewer;
+
+  // Pagination
   if ($('prevPage')) $('prevPage').addEventListener('click', () => { if (currentPage>1) { currentPage--; loadMemories(); } });
   if ($('nextPage')) $('nextPage').addEventListener('click', () => { currentPage++; loadMemories(); });
 
-  // expose some functions for external inline scripts
-  window.Rocky.loadMemories = loadMemories;
-  window.Rocky.forgetMem = forgetMem;
-  window.Rocky.openViewer = openViewer;
-  window.Rocky.pushLocalMemory = pushLocalMemory;
-  window.Rocky.pushLocalThread = pushLocalThread;
+  // Personality save/load & quick toggles
+  async function setPersonalityFlag(flag, value) {
+    if (!account) return;
+    try {
+      await fetchJSON(`${API}/remember`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, key: flag, value })
+      });
+    } catch (err) {
+      pushLocalMemory(account, flag, value);
+    }
+  }
 
-  // initial quick-load if logged in
+  async function pingAgent(msg, silent=false) {
+    if (!account) return;
+    try {
+      await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      if (!silent) appendAssistant(`✅ Agent synced: ${msg}`);
+    } catch {
+      if (!silent) appendAssistant('⚠ Agent sync failed (offline)');
+    }
+  }
+
+  // personality toggles
+  const highestPersEl = $('highestPers');
+  if (highestPersEl) highestPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("highestPers", on);
+    await pingAgent(on ? 'bro personality highest' : 'bro personality reset');
+    appendAssistant(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
+  });
+
+  const immortalPersEl = $('immortalPers');
+  if (immortalPersEl) immortalPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("immortalPers", on);
+    await pingAgent(on ? 'bro immortal' : 'bro personality reset');
+    appendAssistant(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
+  });
+
+  const ghostPersEl = $('ghostPers');
+  if (ghostPersEl) ghostPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("ghostPers", on);
+    await pingAgent(on ? 'bro ghost' : 'bro personality reset');
+    appendAssistant(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
+  });
+
+  // personality dropdown
+  const sel = $('personalitySel');
+  if (sel) {
+    sel.addEventListener('change', async e => {
+      const val = e.target.value;
+      let cmd = '';
+      if (val === 'highest') cmd = 'bro personality highest';
+      if (val === 'immortal') cmd = 'bro immortal';
+      if (val === 'ghost') cmd = 'bro ghost';
+      if (val === 'default') cmd = 'bro personality reset';
+      if (cmd) {
+        await setPersonalityFlag('activePersonality', val);
+        await pingAgent(cmd);
+        appendAssistant(`🔄 Personality switched to ${val.toUpperCase()}`);
+      }
+    });
+  }
+
+  // save/load personality UI
+  if ($('savePers')) {
+    $('savePers').onclick = async () => {
+      if (!account) return alert('Login first');
+      const pers = {
+        tone: $('toneSel') ? $('toneSel').value : 'consistent',
+        style: $('styleSel') ? $('styleSel').value : 'cofounder-high-energy',
+        signature: $('sigInput') ? $('sigInput').value || '' : '',
+      };
+      try {
+        await fetchJSON(`${API}/remember`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account, key: '__personality__', value: pers })
+        });
+        appendAssistant('✅ Stable personality saved');
+      } catch (e) {
+        pushLocalMemory(account, '__personality__', pers);
+        appendAssistant('⚠ Personality saved locally (server offline)');
+      }
+    };
+  }
+
+  if ($('loadPers')) {
+    $('loadPers').addEventListener('click', async () => {
+      if (!account) return alert('Login first');
+      try {
+        const res = await fetch(`${API}/recall/${encodeURIComponent(account)}/__personality__`);
+        if (res.ok) {
+          const j = await res.json();
+          const p = j.value || j;
+          if ($('toneSel')) $('toneSel').value = p.tone || 'consistent';
+          if ($('styleSel')) $('styleSel').value = p.style || 'cofounder-high-energy';
+          if ($('sigInput')) $('sigInput').value = p.signature || '💎🔥';
+          appendAssistant('Personality loaded from server');
+          return;
+        }
+      } catch (e) {}
+      const local = getLocal(account);
+      const p = (local.memories && local.memories['__personality__'] && local.memories['__personality__'].value) || null;
+      if (p) {
+        if ($('toneSel')) $('toneSel').value = p.tone || 'consistent';
+        if ($('styleSel')) $('styleSel').value = p.style || 'cofounder-high-energy';
+        if ($('sigInput')) $('sigInput').value = p.signature || '💎🔥';
+        appendAssistant('Loaded personality locally');
+      } else appendAssistant('No saved personality found');
+    });
+  }
+
+  // system prompt save/clear
+  if ($('savePrompt')) $('savePrompt').addEventListener('click', () => {
+    appendAssistant('System prompt saved (applies when LLM enabled)');
+  });
+  if ($('clearPrompt')) $('clearPrompt').addEventListener('click', () => {
+    if ($('systemPrompt')) $('systemPrompt').value = '';
+    appendAssistant('System prompt cleared');
+  });
+
+  // login/logout
+  if ($('login')) {
+    $('login').addEventListener('click', () => {
+      const email = ($('email') && $('email').value || '').trim();
+      if (!email) return alert('Enter an email to login');
+      account = email;
+      localStorage.setItem('rocky_account', account);
+      showLoginUI();
+      appendAssistant(`✅ Logged in as ${account}`);
+      setTimeout(() => loadMemories(), 150);
+    });
+  }
+  if ($('logout')) {
+    $('logout').addEventListener('click', () => {
+      localStorage.removeItem('rocky_account');
+      account = '';
+      showLoginUI();
+      appendAssistant('🔒 Logged out');
+    });
+  }
+
+  // add quick memory
+  if ($('addQuick')) {
+    $('addQuick').addEventListener('click', async () => {
+      if (!account) return alert('Login first');
+      const k = ($('addKey').value || '').trim();
+      const v = ($('addVal').value || '').trim();
+      if (!k) return alert('Provide a key');
+      try {
+        if (serverAlive) {
+          await fetchJSON(`${API}/remember`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account, key: k, value: v })
+          });
+          appendAssistant(`✅ Saved memory "${k}"`);
+        } else {
+          pushLocalMemory(account, k, v);
+          appendAssistant(`✅ Saved memory "${k}" locally`);
+        }
+        $('addKey').value = '';
+        $('addVal').value = '';
+        await loadMemories();
+      } catch (e) {
+        console.warn('addQuick failed', e);
+        appendAssistant('⚠ Save failed');
+      }
+    });
+  }
+
+  // bulk add handler
+  if ($('bulkAddBtn')) {
+    $('bulkAddBtn').addEventListener('click', async () => {
+      if (!account) return alert('Login first');
+      const text = ($('bulkMemories').value || '').trim();
+      if (!text) return alert('Provide bulk data');
+      let mems = [];
+      try {
+        if (text.startsWith('{')) {
+          const obj = JSON.parse(text);
+          mems = Object.entries(obj);
+        } else {
+          mems = text.split('\n').map(l => l.split(':')).filter(a => a.length >= 2);
+        }
+      } catch (e) {
+        return alert('Invalid format — use JSON or key:value per line');
+      }
+      let added = 0;
+      for (const [k, v] of mems) {
+        try {
+          if (serverAlive) {
+            await fetchJSON(`${API}/remember`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
+            });
+          } else {
+            pushLocalMemory(account, k.trim(), v.toString().trim());
+          }
+          added++;
+        } catch (err) {
+          pushLocalMemory(account, k.trim(), v.toString().trim());
+        }
+      }
+      $('bulkMemories').value = '';
+      appendAssistant(`✅ Added ${added} memories`);
+      await loadMemories();
+    });
+  }
+
+  // initial load if logged in
   if (account) {
-    setTimeout(() => { loadMemories(); restorePersonalityDropdown(); }, 200);
+    setTimeout(() => { loadMemories(); }, 200);
   }
 
 })();
