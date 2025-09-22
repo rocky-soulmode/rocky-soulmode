@@ -201,6 +201,36 @@
       </div>
       <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="margin-top:8px"></textarea>
 <button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
+<!-- >>> safe-globals bootstrap (rocky quick patch) -->
+<script>
+  // Minimal global helpers to avoid early inline script crashes.
+  // Must be defined BEFORE any other inline script that uses $ or window.Rocky.*
+  window.$ = window.$ || function(id) { return document.getElementById(id); };
+  window.esc = window.esc || function(s) { return s == null ? '' : String(s); };
+
+  // Ensure minimal Rock object and safe no-op fallbacks so early code won't blow up.
+  window.Rocky = window.Rocky || {};
+  window.Rocky.fetchJSON = window.Rocky.fetchJSON || (async function(url, opts = {}) {
+    const res = await fetch(url, opts).catch(() => null);
+    if (!res) return null;
+    try { const ct = res.headers.get && res.headers.get('content-type') || ''; return ct.includes('application/json') ? await res.json() : null; } catch(e) { return null; }
+  });
+  window.Rocky.appendAssistant = window.Rocky.appendAssistant || function(msg) {
+    const msgs = document.getElementById('msgs');
+    if (msgs) {
+      const d = document.createElement('div');
+      d.className = 'msg assistant';
+      d.innerHTML = `<strong>Assistant:</strong> ${String(msg)}`;
+      msgs.appendChild(d);
+      msgs.scrollTop = msgs.scrollHeight;
+    } else {
+      console.log('Assistant:', msg);
+    }
+  };
+  window.Rocky.pushLocalMemory = window.Rocky.pushLocalMemory || function(){};
+  window.Rocky.pushLocalThread = window.Rocky.pushLocalThread || function(){};
+</script>
+<!-- <<< end safe-globals bootstrap -->
 
 <script>
 /*
@@ -392,8 +422,12 @@
       const resImmortal = await fetch(`${API}/recall/${encodeURIComponent(account)}/immortalPers`);
       const immortal = resImmortal.ok ? (await resImmortal.json()).value || (await resImmortal.json()) : null;
       const ghost = await fetchJSON(`${API}/recall/${encodeURIComponent(account)}/ghostPers`);
-      $('ghostPers').checked = !!(ghost?.value || ghost);
-      if ($('ghostPers').checked) await pingAgent('bro ghost', true);
+      const ghostEl = document.getElementById('ghostPers');
+        if (ghostEl) {
+        ghostEl.checked = !!(ghost?.value || ghost);
+        if (ghostEl.checked) await pingAgent('bro ghost', true);
+      }
+
 
       if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!(highest?.value || highest);
       if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!(immortal?.value || immortal);
@@ -556,7 +590,9 @@ if (ghostPersEl) {
   window.Rocky.API_BASE = API;
 
   // === Short helpers ===
-  const $ = id => document.getElementById(id);
+  // ensure a global $ exists and also keep a local $ reference
+  window.$ = window.$ || (id => document.getElementById(id));
+  const $ = window.$;
   const esc = s => s == null ? '' : String(s);
   const nowISO = () => (new Date()).toISOString();
   const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
@@ -1269,4 +1305,5 @@ if ($('creativity') && $('creativityLabel')) {
 </div></div></div></div></div></div>
 </body>
 </html>
+
 
