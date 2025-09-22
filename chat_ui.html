@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="utf-8" >
+  <meta name="viewport" content="width=device-width,initial-scale=1" >
   <title>Rocky Soulmode — Chat Memory (Polished)</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
@@ -108,7 +108,7 @@
 <!-- Keep essential safe hidden inputs (used by JS defaults) -->
 <input type="hidden" id="pageSize" value="8">
 <input type="hidden" id="valuePageSize" value="1200">
-<input type="hidden" id="autoSync" checked>
+<input type="hidden" id="autoSync" value="true">
 <input type="hidden" id="showRaw">
 
 <div class="app" role="application" aria-label="Rocky Soulmode Chat Memory App">
@@ -131,7 +131,7 @@
         <div class="server-status small" id="srv" aria-live="polite">Server: unknown</div>
       </div>
        <div class="header-actions">
-        <input id="email" type="email" placeholder="you@domain.com" aria-label="Account email" />
+        <input id="email" type="email" placeholder="you@domain.com" aria-label="Account email" >
         <button class="btn btn-ghost" id="login">Login</button>
         <button class="btn btn-ghost" id="logout" style="display:none">Logout</button>
         <!-- Open Settings (modal) removed — settings live in side panel now -->
@@ -140,6 +140,7 @@
 
     <div class="layout" id="mainLayout" role="main">
       <!-- Chat Panel -->
+      <h2 id="chat-heading" class="small" style="display:none">Chat</h2>
       <div id="chatPanel" class="chatCol panel" aria-labelledby="chat-heading">
         <div id="msgs" aria-live="polite" aria-atomic="false"></div>
 
@@ -147,7 +148,7 @@
           <div class="small">Account: <strong id="curAccount">(not logged)</strong></div>
           <div>
             <label class="small" for="useLLM">LLM</label>
-            <input type="checkbox" id="useLLM" style="margin-left:8px" aria-label="Use LLM"/>
+            <input type="checkbox" id="useLLM" style="margin-left:8px" aria-label="Use LLM">
           </div>
         </div>
 
@@ -172,13 +173,13 @@
           </div>
 
           <div style="margin-top:10px" class="searchRow">
-            <input id="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories" />
+            <input id="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories" >
             <button class="btn btn-ghost" id="searchBtn">Search</button>
           </div>
 
           <div style="margin-top:10px">
             <div style="display:flex;gap:8px">
-              <input id="addKey" type="text" placeholder="key" aria-label="memory key" />
+              <input id="addKey" type="text" placeholder="key" aria-label="memory key" >
               <button class="btn btn-primary" id="addQuick">Save</button>
             </div>
             <textarea id="addVal" placeholder="value (multi-line)" style="margin-top:8px" aria-label="memory value"></textarea>
@@ -316,7 +317,7 @@
 
             <div style="margin-top:8px" class="row">
               <label class="small">Signature</label>
-              <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1"/>
+              <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1">
             </div>
 
      <div style="margin-top:12px">
@@ -514,6 +515,7 @@ if (ghostPersEl) {
   document.addEventListener('DOMContentLoaded', restorePersonalityDropdown);
 </script>
 
+<script>
 /* Manual restore via Load Personality button */
   const loadPersBtn = document.getElementById('loadPers');
   if (loadPersBtn) {
@@ -756,7 +758,7 @@ if (ghostPersEl) {
     bulkBar.style.marginBottom = '8px';
     bulkBar.innerHTML = `
       <label style="margin-right:12px">
-        <input type="checkbox" id="selectAllMem" /> Select All
+        <input type="checkbox" id="selectAllMem" > Select All
       </label>
       <button class="btn btn-ghost" id="deleteSelected">🗑 Delete Selected</button>
     `;
@@ -766,7 +768,7 @@ if (ghostPersEl) {
       const div = document.createElement('div');
       div.className = 'memItem';
       div.innerHTML = `
-        <input type="checkbox" class="memCheck" data-key="${esc(it.key)}" style="margin-right:8px"/>
+        <input type="checkbox" class="memCheck" data-key="${esc(it.key)}" style="margin-right:8px">
         <div style="flex:1">
           <div class="memKey">${esc(it.key)}</div>
           <div class="memVal">${esc(it.value)}</div>
@@ -808,7 +810,7 @@ if (ghostPersEl) {
     const bulkBtn = $('deleteSelected');
     if (bulkBtn) {
       bulkBtn.addEventListener('click', async () => {
-        const selected = [..document.querySelectorAll('.memCheck:checked')].map(cb => cb.dataset.key);
+        const selected = Array.from(document.querySelectorAll('.memCheck:checked')].map(cb => cb.dataset.key);
         if (!selected.length) return alert('No memories selected');
         if (!confirm(`Delete ${selected.length} memories?`)) return;
         for (const key of selected) {
@@ -1263,5 +1265,7 @@ if ($('creativity') && $('creativityLabel')) {
     $('creativityLabel').textContent = e.target.value;
   });
 }
+</script>
+</div></div></div></div></div></div>
 </body>
 </html>
