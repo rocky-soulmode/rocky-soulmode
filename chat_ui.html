@@ -378,11 +378,7 @@
   if (j && j.reply) {
   appendAssistant(`${j.personality?.signature || ''} ${j.reply}`);
   }
-
-  } else {
-  appendAssistant("⚠ No reply from agent");
-  }
-        }
+     }
 
   // Restore toggle states (backend → local fallback)
   async function restorePersonalityFlags(silent=false) {
@@ -457,28 +453,7 @@ if (ghostPersEl) {
     await pingAgent(on ? 'bro ghost' : 'bro personality reset');
   });
 }
-  
-<script>
-  // Save active personality flag
-  async function setPersonalityFlag(flag, value) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/remember`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ account, key: flag, value })
-      });
-    } catch {
-      const LOCAL_PREFIX = 'rocky_local::';
-      const raw = localStorage.getItem(LOCAL_PREFIX + account);
-      const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
-      p.memories[flag] = { value, timestamp: new Date().toISOString() };
-      localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
-    }
-  }
-
-  async function pingAgent(msg, silent=false) {
+    async function pingAgent(msg, silent=false) {
     const account = localStorage.getItem('rocky_account') || '';
     if (!account) return;
     try {
@@ -1290,59 +1265,8 @@ if ($('creativity') && $('creativityLabel')) {
     $('creativityLabel').textContent = e.target.value;
   });
 }
-</script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script>
-const firebaseConfig = {
-  apiKey: "AIzaSyBUzlFwJjbMbw-U4pwiLWQsveuBHeTypi0",
-  authDomain: "chatgpt-kaapav.firebaseapp.com",
-  projectId: "chatgpt-kaapav",
-  storageBucket: "chatgpt-kaapav.firebasestorage.app",
-  messagingSenderId: "706234896550",
-  appId: "1:706234896550:web:e772bc0fbcf75c872b2467",
-};
-
-if (typeof firebase !== 'undefined' && firebase && firebase.initializeApp) {
-  try {
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
-
-    function loadFirebaseMemories(account) {
-      const memContainer = document.getElementById("memList");
-      if (!memContainer) return;
-      memContainer.innerHTML = "Loading...";
-
-      db.collection("memories")
-        .where("account", "==", account)
-        .onSnapshot((snapshot) => {
-          memContainer.innerHTML = "";
-          snapshot.forEach((doc) => {
-            const data = doc.data();
-            const item = document.createElement("div");
-            item.className = "memItem";
-            item.innerHTML = `
-              <div style="flex:1">
-                <div class="memKey">${data.key}</div>
-               <div class="memVal">${data.value}</div>
-              </div>
-            `;
-            memContainer.appendChild(item);
-          });
-        });
-    }
-
-    // Example: Load memories for kaapav
-    try { loadFirebaseMemories("kaapav"); } catch (e) { console.warn('firebase load example failed', e); }
-  } catch (e) {
-    console.warn('firebase init failed', e);
-  }
-} else {
-  console.warn('Firebase library not available (compat).');
-}
-</script>
-
 </body>
 </html>
+
 
 
