@@ -601,14 +601,6 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         "usage": usage_snapshot
     }
 
-    # cache result briefly (10s)
-    try:
-        cache_set(cache_key, result, ttl=10)
-    except Exception:
-        pass
-
-    return result
-
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
     "tone": "professional-friendly",
@@ -1071,7 +1063,7 @@ if HAS_FASTAPI:
     def api_export(account: str):
         return export_all(account)
 
-    @app.get("/search")
+       @app.get("/search")
     def api_search(q: Optional[str] = None, account: Optional[str] = None, limit: int = 50):
         """
         Simple server-side search for memories.
@@ -1080,8 +1072,10 @@ if HAS_FASTAPI:
         q = (q or "").strip().lower()
         if not q:
             return {"memories": []}
+
         mems = export_all(account).get("memories", {})
         results = []
+
         for fullkey, doc in mems.items():
             key = fullkey.split("::")[-1]
             val = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
@@ -1089,6 +1083,7 @@ if HAS_FASTAPI:
                 results.append({"key": key, "value": val, "raw": doc})
                 if len(results) >= limit:
                     break
+
         return {"memories": results}
 
     @app.post("/log_thread")
@@ -1345,3 +1340,4 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
