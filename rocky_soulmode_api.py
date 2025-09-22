@@ -905,6 +905,29 @@ if HAS_FASTAPI:
     def api_export(account: str):
         return export_all(account)
 
+    @app.get("/search")
+    def api_search(q: Optional[str] = None, account: Optional[str] = None, limit: int = 50):
+    """
+    Simple server-side search for memories.
+    Returns a JSON object: { "memories": [ { key, value, raw }, ... ] }
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return {"memories": []}
+
+    mems = export_all(account).get("memories", {})
+    results = []
+
+    for fullkey, doc in mems.items():
+        key = fullkey.split("::")[-1]
+        val = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
+        if q in str(key).lower() or q in str(val).lower():
+            results.append({"key": key, "value": val, "raw": doc})
+            if len(results) >= limit:
+                break
+
+    return {"memories": results}
+
     @app.post("/log_thread")
     def api_log_thread(body: ThreadReq):
         msgs = [{"role": m.role, "content": m.content, "timestamp": m.timestamp or now_iso()} for m in body.messages]
@@ -1175,6 +1198,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
