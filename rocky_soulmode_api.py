@@ -1,21 +1,9 @@
-# rocky_soulmode_api.py
+# rocky_soulmode_api.py (REVISED)
 import logging
-
-def safe_reply(reply, fallback="⚠️ I didn’t understand that."):
-    """
-    Ensures 'reply' is always safe to return.
-    Logs a warning if fallback is used.
-    """
-    if reply is None:
-        logging.warning("⚠️ safe_reply triggered fallback (reply was None)")
-        return fallback
-    return reply
-
 import os
 import re
 import sys
 import json
-import logging
 import unittest
 import threading
 import time
@@ -23,44 +11,108 @@ import requests
 import random
 import traceback
 from datetime import datetime, timedelta
-from google.api_core.exceptions import ResourceExhausted
 from typing import List, Optional, Dict, Any
+
+# google exceptions + retry (guarded imports)
+try:
+    from google.api_core.exceptions import ResourceExhausted
+    from google.api_core.retry import Retry
+except Exception:
+    ResourceExhausted = Exception
+    # define a no-op Retry placeholder if import fails; Firestore will be disabled anyway
+    class Retry:
+        def __init__(self, *a, **k):
+            pass
+
+# ----------------- Basic helpers -----------------
+def safe_reply(reply, fallback="⚠️ I didn’t understand that."):
+    """
+    Ensures 'reply' is always safe to return.
+    Logs a warning if fallback is used.
+    """
+    if reply is None:
+        logging.getLogger("rocky_soulmode").warning("⚠️ safe_reply triggered fallback (reply was None)")
+        return fallback
+    return reply
+
+# ----------------- Firestore circuit variables -----------------
+_FIRESTORE_QUOTA_EVENTS = 0
+_FIRESTORE_QUOTA_BACKOFF_UNTIL = 0.0
+_FIRESTORE_QUOTA_THRESHOLD = 3    # events before cooldown
+_FIRESTORE_QUOTA_COOLDOWN = 300   # seconds to skip Firestore after threshold reached
+
+def _note_firestore_quota_event():
+    global _FIRESTORE_QUOTA_EVENTS, _FIRESTORE_QUOTA_BACKOFF_UNTIL
+    now = time.time()
+    _FIRESTORE_QUOTA_EVENTS += 1
+    if _FIRESTORE_QUOTA_EVENTS >= _FIRESTORE_QUOTA_THRESHOLD:
+        _FIRESTORE_QUOTA_BACKOFF_UNTIL = now + _FIRESTORE_QUOTA_COOLDOWN
+
+def _can_use_firestore():
+    try:
+        return (firestore_client is not None) and (time.time() > _FIRESTORE_QUOTA_BACKOFF_UNTIL)
+    except Exception:
+        return False
 
 # ----------------- Redis (Upstash REST) -----------------
 UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "https://bright-aardvark-8251.upstash.io")
-UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "ASA7AAImcDIxY2U0MTVlODY0ZTY0ZmFmOGQ5ODc0Y2UwYjg3MjI5NXAyODI1MQ")
+UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
 
 def redis_rest_cmd(command: str, *args):
-    """Send a Redis command to Upstash via REST API."""
+    """Send a Redis command to Upstash via REST API (best-effort)."""
+    lg = logging.getLogger("rocky_soulmode")
     try:
+        if not UPSTASH_TOKEN or not UPSTASH_URL:
+            return None
         url = f"{UPSTASH_URL}/{command}"
-        headers = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
+        headers = {"Authorization": f"Bearer {UPSTASH_TOKEN}"} if UPSTASH_TOKEN else {}
         payload = [str(a) for a in args]
         res = requests.post(url, headers=headers, json=payload, timeout=5)
         res.raise_for_status()
         data = res.json()
         return data.get("result")
     except Exception as e:
-        logger.warning(f"[Redis REST] {command} failed: {e}")
+        lg.debug("[Redis REST] %s failed: %s", command, e)
         return None
 
 def cache_set(key: str, value: Any, ttl: int = 60):
+    lg = logging.getLogger("rocky_soulmode")
     try:
+        # prefer python redis client if configured, otherwise Upstash REST
+        if redis_client:
+            try:
+                redis_client.setex(key, ttl, json.dumps(value))
+                return
+            except Exception:
+                pass
         redis_rest_cmd("setex", key, ttl, json.dumps(value))
     except Exception as e:
-        logger.warning(f"[Cache] Failed set {key}: {e}")
+        lg.warning(f"[Cache] Failed set {key}: {e}")
 
 def cache_get(key: str) -> Optional[Any]:
+    lg = logging.getLogger("rocky_soulmode")
     try:
+        if redis_client:
+            try:
+                val = redis_client.get(key)
+                if val:
+                    try:
+                        return json.loads(val)
+                    except Exception:
+                        return val
+            except Exception:
+                pass
         val = redis_rest_cmd("get", key)
         if val:
-            return json.loads(val)
+            try:
+                return json.loads(val)
+            except Exception:
+                return val
     except Exception as e:
-        logger.warning(f"[Cache] Failed get {key}: {e}")
+        lg.warning(f"[Cache] Failed get {key}: {e}")
     return None
-# --------------------------------------------------------
 
-# Optional / third-party flags
+# ----------------- Optional / third-party flags -----------------
 HAS_FASTAPI = False
 HAS_PYDANTIC = False
 HAS_OPENAI = False
@@ -90,7 +142,6 @@ try:
         firestore_client = firestore.Client(credentials=creds, project=creds.project_id)
         print(f"🔥 Connected to Firestore project: {creds.project_id}")
     else:
-        # Do not raise here; fall back to local memory
         firestore_client = None
         print("⚠️ Firestore not available: GOOGLE_APPLICATION_CREDENTIALS not set or file missing")
 except Exception as e:
@@ -106,14 +157,38 @@ try:
 except Exception:
     HAS_OPENAI = False
 
-# Logging
+# ----------------- Logging -----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rocky_soulmode")
 
-# Local fallback storage (in-memory)
-DB_NAME = os.getenv("ROCKY_DB", "rocky_soulmode")
+# ----------------- Local fallback & compatibility helpers -----------------
+LOCAL_STORE: Dict[str, Dict[str, Any]] = {}
 _local_memory: Dict[str, Dict[str, Any]] = {}   # account -> key -> doc
 _local_threads: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}  # account -> thread_id -> messages
+
+# Optionally set a python `redis` client into `redis_client` variable at runtime.
+redis_client = None  # by default we use Upstash REST (redis_rest_cmd)
+
+def safe_str(s: Optional[str]) -> str:
+    if s is None:
+        return ""
+    return str(s).strip().replace("/", "_").replace(" ", "_")
+
+def invalidate_thread_cache_for_account(acc: str):
+    """Best-effort cache invalidation for thread scan results."""
+    try:
+        if redis_client:
+            pattern = f"threads:{acc}:*"
+            for key in redis_client.scan_iter(match=pattern, count=1000):
+                try:
+                    redis_client.delete(key)
+                except Exception:
+                    pass
+        else:
+            # Upstash REST scan not implemented reliably here — skip silently
+            pass
+    except Exception:
+        pass
 
 # ----------------- Utilities -----------------
 def now_iso() -> str:
@@ -145,20 +220,12 @@ def extractive_summary(messages: List[Dict[str, Any]], max_sentences: int = 3) -
     return " ".join(ordered).strip()
 
 def _safe_firestore_key(key: str) -> str:
-    """
-    Firestore does not allow keys starting with '__'.
-    Map them to 'reserved_<name>'.
-    """
     if key.startswith("__"):
         return f"reserved_{key.strip('_')}"
     return key
 
 def log_firestore_error(action: str, account: str, key: str, error: Exception):
-    """
-    Safe Firestore error logger: use local logger instance so this function
-    won't break if module-level logger hasn't been created yet.
-    """
-    lg = logging.getLogger("rocky_soulmode")  # get or create named logger
+    lg = logging.getLogger("rocky_soulmode")
     lg.error(
         f"\n🚨 FIRESTORE ERROR during {action}\n"
         f"   account = {account}\n"
@@ -177,123 +244,204 @@ def _ensure_account(account: Optional[str]):
         _local_threads[acc] = {}
     return acc
 
-def remember_data(account: Optional[str], key: str, value: Any, tags: Optional[List[str]] = None) -> Dict[str, Any]:
-    acc = _ensure_account(account)
-    doc = {
-        "account": acc,
-        "key": key,
-        "value": value,
-        "tags": tags or [],
-        "timestamp": now_iso()
-    }
-    if firestore_client:
-        try:
-            safe_key = _safe_firestore_key(key)
-            # store under collection "memories" -> document(acc) -> collection("items") -> document(safe_key)
-            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).set(doc)
-            logger.info(f"[FIRESTORE] Saved memory {acc}:{safe_key}")
-        except Exception as e:
-            log_firestore_error("save", acc, key, e)
-    _local_memory[acc][key] = doc
-    return doc
+def remember_data(acc: str, key: str, value):
+    acc = acc or "default"
+    safe_key = safe_str(key)
+    data = {"value": value, "ts": datetime.utcnow().isoformat()}
 
-def recall_data(account: Optional[str], key: str) -> Optional[Dict[str, Any]]:
-    acc = account or "global"
-    if firestore_client:
-        try:
-            safe_key = _safe_firestore_key(key)
-            snap = firestore_client.collection("memories").document(acc).collection("items").document(safe_key).get()
-            if snap.exists:
-                return snap.to_dict()
-        except Exception as e:
-            log_firestore_error("recall", acc, key, e)
-    return _local_memory.get(acc, {}).get(key)
+    # Redis write (either python redis client or Upstash REST)
+    try:
+        if redis_client:
+            try:
+                redis_client.hset(f"mem:{acc}", safe_key, json.dumps(data))
+            except Exception:
+                # fallback to setex / hset via Upstash REST if python client fails
+                redis_rest_cmd("hset", f"mem:{acc}", safe_key, json.dumps(data))
+        else:
+            redis_rest_cmd("hset", f"mem:{acc}", safe_key, json.dumps(data))
+    except Exception as e:
+        logger.warning("Redis write failed for %s:%s: %s", acc, safe_key, e)
 
-def forget_data(account: Optional[str], key: str) -> bool:
-    acc = account or "global"
-    removed = False
-    if firestore_client:
+    # Firestore best-effort (short deadline)
+    if _can_use_firestore():
         try:
-            safe_key = _safe_firestore_key(key)
-            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).delete()
-            removed = True
+            no_retry = Retry(deadline=5.0, maximum=1)
+            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).set(data, retry=no_retry)
         except Exception as e:
-            log_firestore_error("delete", acc, key, e)
-    if _local_memory.get(acc, {}).pop(key, None) is not None:
-        removed = True
-    return removed
+            logger.warning("Firestore write skipped for %s:%s -> %s", acc, safe_key, e)
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
+
+    # Local fallback
+    LOCAL_STORE.setdefault(acc, {})[safe_key] = data
+
+    # Invalidate caches for account (best-effort)
+    try:
+        invalidate_thread_cache_for_account(acc)
+    except Exception:
+        pass
+
+    return data
+
+def recall_data(acc: str, key: str):
+    acc = acc or "default"
+    safe_key = safe_str(key)
+
+    # Try Redis first (python client or Upstash REST)
+    try:
+        if redis_client:
+            try:
+                val = redis_client.hget(f"mem:{acc}", safe_key)
+            except Exception:
+                val = None
+        else:
+            val = redis_rest_cmd("hget", f"mem:{acc}", safe_key)
+        if val:
+            try:
+                return json.loads(val)
+            except Exception:
+                return {"value": val}
+    except Exception as e:
+        logger.warning("Redis read failed (%s:%s): %s", acc, safe_key, e)
+
+    # Firestore quick/no-retry get (best-effort)
+    if _can_use_firestore():
+        try:
+            no_retry = Retry(deadline=5.0, maximum=1)
+            doc = firestore_client.collection("memories").document(acc).collection("items").document(safe_key).get(retry=no_retry)
+            if doc and getattr(doc, "exists", False):
+                data = doc.to_dict()
+                # cache back into Redis
+                try:
+                    if redis_client:
+                        redis_client.hset(f"mem:{acc}", safe_key, json.dumps(data))
+                    else:
+                        redis_rest_cmd("hset", f"mem:{acc}", safe_key, json.dumps(data))
+                except Exception:
+                    pass
+                return data
+        except Exception as e:
+            logger.warning("Firestore recall failed for %s:%s -> %s", acc, safe_key, e)
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
+
+    # Local fallback
+    return LOCAL_STORE.get(acc, {}).get(safe_key)
+
+def forget_data(acc: str, key: str):
+    acc = acc or "default"
+    safe_key = safe_str(key)
+    try:
+        if redis_client:
+            try:
+                redis_client.hdel(f"mem:{acc}", safe_key)
+            except Exception:
+                redis_rest_cmd("hdel", f"mem:{acc}", safe_key)
+        else:
+            redis_rest_cmd("hdel", f"mem:{acc}", safe_key)
+    except Exception as e:
+        logger.warning("Redis delete failed for %s:%s -> %s", acc, safe_key, e)
+
+    if _can_use_firestore():
+        try:
+            no_retry = Retry(deadline=5.0, maximum=1)
+            firestore_client.collection("memories").document(acc).collection("items").document(safe_key).delete(retry=no_retry)
+        except Exception as e:
+            logger.warning("Firestore delete failed for %s:%s -> %s", acc, safe_key, e)
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
+
+    if acc in LOCAL_STORE and safe_key in LOCAL_STORE[acc]:
+        del LOCAL_STORE[acc][safe_key]
+
+    try:
+        invalidate_thread_cache_for_account(acc)
+    except Exception:
+        pass
+
+    return {"ok": True, "deleted": safe_key}
 
 def export_all(account: Optional[str] = None) -> Dict[str, Any]:
     out: Dict[str, Any] = {"memories": {}, "threads": {}, "personality": {}}
     acc_filter = account or None
-    if firestore_client:
+    if _can_use_firestore():
         try:
             if acc_filter:
-                docs = firestore_client.collection("memories").document(acc_filter).collection("items").stream()
+                docs = firestore_client.collection("memories").document(acc_filter).collection("items").stream(retry=Retry(deadline=10.0, maximum=1))
                 for d in docs:
-                    data = d.to_dict()
-                    out["memories"][f"{acc_filter}::{data['key']}"] = data
+                    data = d.to_dict() or {}
+                    out["memories"][f"{acc_filter}::{getattr(d, 'id', '')}"] = data
             else:
-                # fetch all accounts
-                acc_docs = firestore_client.collection("memories").stream()
+                acc_docs = firestore_client.collection("memories").stream(retry=Retry(deadline=10.0, maximum=1))
                 for acc_doc in acc_docs:
-                    acc_id = acc_doc.id
-                    docs = firestore_client.collection("memories").document(acc_id).collection("items").stream()
+                    acc_id = getattr(acc_doc, "id", None) or "global"
+                    docs = firestore_client.collection("memories").document(acc_id).collection("items").stream(retry=Retry(deadline=10.0, maximum=1))
                     for d in docs:
-                        data = d.to_dict()
-                        out["memories"][f"{acc_id}::{data['key']}"] = data
+                        data = d.to_dict() or {}
+                        out["memories"][f"{acc_id}::{getattr(d, 'id', '')}"] = data
         except Exception as e:
             logger.warning(f"[EXPORT] Firestore memories export failed: {e}")
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
     # also include local fallback
     if acc_filter:
         out["memories"].update({f"{acc_filter}::{k}": v for k, v in _local_memory.get(acc_filter, {}).items()})
     else:
         for a, mems in _local_memory.items():
             out["memories"].update({f"{a}::{k}": v for k, v in mems.items()})
+    # include LOCAL_STORE entries
+    for a, mems in LOCAL_STORE.items():
+        out["memories"].update({f"{a}::{k}": v for k, v in mems.items()})
     return out
 
 # ----------------- Thread operations -----------------
 def log_thread(account: Optional[str], thread_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     acc = _ensure_account(account)
     msgs = [{"role": m.get("role", "user"), "content": m.get("content", ""), "timestamp": m.get("timestamp") or now_iso()} for m in messages]
-    if firestore_client:
+    if _can_use_firestore():
         try:
+            no_retry = Retry(deadline=5.0, maximum=1)
             firestore_client.collection("threads").document(acc).collection("items").document(thread_id).set({
                 "account": acc,
                 "thread_id": thread_id,
                 "messages": msgs,
                 "timestamp": now_iso()
-            })
+            }, retry=no_retry)
             logger.info(f"[FIRESTORE] Saved thread {acc}:{thread_id}")
         except Exception as e:
             log_firestore_error("thread_log", acc, thread_id, e)
-    _local_threads[acc][thread_id] = msgs
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
+    # local copy
+    _local_threads.setdefault(acc, {})[thread_id] = msgs
     return {"account": acc, "thread_id": thread_id, "messages": msgs}
 
 def fetch_thread_messages(account: Optional[str], thread_id: str) -> List[Dict[str, Any]]:
     acc = account or "global"
-    if firestore_client:
+    if _can_use_firestore():
         try:
-            snap = firestore_client.collection("threads").document(acc).collection("items").document(thread_id).get()
-            if snap.exists:
+            no_retry = Retry(deadline=5.0, maximum=1)
+            snap = firestore_client.collection("threads").document(acc).collection("items").document(thread_id).get(retry=no_retry)
+            if snap and getattr(snap, "exists", False):
                 return snap.to_dict().get("messages", [])
         except Exception as e:
             logger.warning(f"[THREAD] Firestore fetch failed for {acc}:{thread_id}: {e}")
+            if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                _note_firestore_quota_event()
     return _local_threads.get(acc, {}).get(thread_id, [])
 
-# ----------------- Scan & Respond -----------------
+# ----------------- Scan & Respond (guarded) -----------------
 def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Optional[str],
                      max_context: int = 10, use_llm: bool = False,
                      thread_fetch_limit: int = 5, delta_limit: int = 50) -> Dict[str, Any]:
     acc = account or "global"
     messages: List[Dict[str, Any]] = []
 
-    # ---------------- Redis Cache Check ----------------
+    # Redis Cache Check
     cache_key = f"threads:{acc}:{thread_id or 'all'}:{query or 'noq'}"
     cached = cache_get(cache_key)
     if cached:
         return cached
-    # ---------------------------------------------------
 
     # 1) Specific thread
     if thread_id:
@@ -303,12 +451,54 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         for msgs in _local_threads.get(acc, {}).values():
             messages.extend(msgs)
 
-        # 3) Firestore delta/limited fetch
-        if firestore_client:
-            last_sync_iso = _local_memory.get(acc, {}).get("_last_threads_sync")
-            now_iso_ts = now_iso()
+        # 3) Redis-first threads listing (best-effort)
+        read_docs = 0
+        redis_used = False
+        try:
+            if redis_client:
+                for key in redis_client.scan_iter(match=f"threads:{acc}:*", count=1000):
+                    try:
+                        raw = None
+                        try:
+                            raw = redis_client.get(key)
+                        except Exception:
+                            try:
+                                raw = redis_client.hget(key, "messages")
+                            except Exception:
+                                raw = None
+                        if not raw:
+                            try:
+                                all_h = redis_client.hgetall(key)
+                                if all_h:
+                                    raw = json.dumps(all_h)
+                            except Exception:
+                                pass
+                        if not raw:
+                            continue
+                        try:
+                            payload = json.loads(raw)
+                        except Exception:
+                            payload = {"messages": []}
+                        thread_msgs = payload.get("messages", [])
+                        if isinstance(thread_msgs, list):
+                            messages.extend(thread_msgs)
+                            read_docs += 1
+                    except Exception as e:
+                        logger.exception("Redis thread processing failed for %s: %s", key, e)
+                redis_used = True
+            else:
+                # Try Upstash listing - not reliable; skip. Keep redis_used False so Firestore attempt may run.
+                redis_used = False
+        except Exception as e:
+            logger.warning("Redis iteration for threads failed: %s", e)
+            redis_used = False
+
+        # 4) Firestore guarded fetch if Redis didn't produce results
+        if not redis_used and _can_use_firestore():
             try:
-                if last_sync_iso:
+                no_retry = Retry(deadline=10.0, maximum=1)
+                if _local_memory.get(acc, {}).get("_last_threads_sync"):
+                    last_sync_iso = _local_memory.get(acc, {}).get("_last_threads_sync")
                     try:
                         docs_query = (
                             firestore_client.collection("threads")
@@ -317,14 +507,14 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                             .order_by("updated_at", direction="ASCENDING")
                             .limit(delta_limit)
                         )
-                        docs = docs_query.stream()
+                        docs = docs_query.stream(retry=no_retry)
                     except Exception:
                         docs = (
                             firestore_client.collection("threads")
                             .where("account", "==", acc)
                             .order_by("timestamp", direction="DESCENDING")
                             .limit(thread_fetch_limit)
-                            .stream()
+                            .stream(retry=no_retry)
                         )
                 else:
                     docs = (
@@ -332,29 +522,35 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                         .where("account", "==", acc)
                         .order_by("timestamp", direction="DESCENDING")
                         .limit(thread_fetch_limit)
-                        .stream()
+                        .stream(retry=no_retry)
                     )
 
-                read_docs = 0
                 for d in docs:
-                    read_docs += 1
-                    payload = d.to_dict()
-                    thread_msgs = payload.get("messages", [])
-                    if isinstance(thread_msgs, list):
-                        messages.extend(thread_msgs)
+                    try:
+                        read_docs += 1
+                        payload = d.to_dict() or {}
+                        thread_msgs = payload.get("messages", [])
+                        if isinstance(thread_msgs, list):
+                            messages.extend(thread_msgs)
+                    except Exception as inner_e:
+                        logger.exception("Processing Firestore thread doc failed: %s", inner_e)
 
-                _local_memory.setdefault(acc, {})["_last_threads_sync"] = now_iso_ts
+                _local_memory.setdefault(acc, {})["_last_threads_sync"] = now_iso()
                 _local_memory.setdefault(acc, {}).setdefault("_usage", {"reads": 0, "writes": 0})
                 _local_memory[acc]["_usage"]["reads"] += read_docs
 
-            except ResourceExhausted:
-                logger.warning(f"[Firestore] Quota exceeded for {acc}, using cache only.")
-                _local_memory.setdefault(acc, {}).setdefault("_quota_events", 0)
-                _local_memory[acc]["_quota_events"] += 1
             except Exception as e:
-                log_firestore_error("scan", acc, "threads", e)
+                logger.warning("Firestore bulk scan failed (guarded): %s", e)
+                if isinstance(e, ResourceExhausted) or "Quota exceeded" in str(e):
+                    _note_firestore_quota_event()
+                try:
+                    log_firestore_error("scan", acc, "threads", e)
+                except Exception:
+                    pass
+        elif not _can_use_firestore():
+            logger.info("Skipping Firestore bulk scan for threads: in cooldown or disabled")
 
-    # 4) Query filter
+    # 5) Query filter
     if query:
         try:
             messages = [m for m in messages if re.search(query, m.get("content", ""), re.I)]
@@ -362,13 +558,13 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
             qlow = query.lower()
             messages = [m for m in messages if qlow in (m.get("content") or "").lower()]
 
-    # 5) Context slice
+    # 6) Context slice
     context = messages[-max_context:] if messages else []
 
-    # 6) Summary
+    # 7) Summary
     summary = extractive_summary(context, max_sentences=4)
 
-    # 7) LLM suggestion
+    # 8) LLM suggestion
     suggested = ""
     if use_llm and HAS_OPENAI:
         try:
@@ -386,7 +582,7 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         except Exception as e:
             logger.warning(f"[LLM] OpenAI call failed: {e}")
 
-    # 8) Fallback
+    # 9) Fallback suggestion
     if not suggested:
         if query:
             suggested = f"Based on the chat summary: {summary}. Suggestion: answer the query directly and confirm next steps."
@@ -405,23 +601,24 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         "usage": usage_snapshot
     }
 
-    # ---------------- Save to Redis Cache ----------------
-    cache_set(cache_key, result, ttl=60)  # cache for 1 minute
-    # -----------------------------------------------------
+    # cache result briefly (10s)
+    try:
+        cache_set(cache_key, result, ttl=10)
+    except Exception:
+        pass
 
     return result
 
-
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
-    "tone": "professional-friendly",        # warm + respectful
-    "style": "proactive-solution-oriented", # anticipates user needs
-    "signature": "⚡💎",                     # strong but not too flashy
-    "responsibility": "high",               # always follow through
-    "consistency": "stable",                # same behavior every time
-    "adaptability": "learning",             # grows with new info
-    "thinking": "strategic-creative",       # balance logic + creativity
-    "focus": "customer-success",            # priority: user outcomes
+    "tone": "professional-friendly",
+    "style": "proactive-solution-oriented",
+    "signature": "⚡💎",
+    "responsibility": "high",
+    "consistency": "stable",
+    "adaptability": "learning",
+    "thinking": "strategic-creative",
+    "focus": "customer-success",
 }
 
 HIGHEST_PERSONALITY = {
@@ -508,7 +705,6 @@ class RockyAgent:
         self.personality = get_personality(self.account)
         self.fail_streak = 0
 
-    # ----------------- Helpers -----------------
     def _log_user(self, text: str):
         try:
             log_thread(self.account, self.thread_id,
@@ -533,7 +729,6 @@ class RockyAgent:
                 elif k == "birthday":
                     facts["birthday"] = (m.group(3) or "").strip()
                 else:
-                    # For email/phone/like/dislike: first capturing group
                     facts[k] = m.group(1).strip()
         return facts
 
@@ -554,25 +749,17 @@ class RockyAgent:
         )
 
     def _extract_command(self, text: str) -> Optional[str]:
-        """
-        Advanced command parser with regex, tokenization and aliases.
-        Returns a canonical command string or None.
-        """
         original = (text or "").strip()
         lowered = original.lower()
-
         prefixes = ["bro ", "/", "::", ">>", ">>>", "rocky "]
         for p in prefixes:
             if lowered.startswith(p):
                 lowered = lowered[len(p):].strip()
                 break
-
         meta_match = re.match(r"^(?:<<<|\[\[)(.+?)(?:>>>|\]\])", lowered)
         if meta_match:
             lowered = meta_match.group(1).strip()
-
         tokens = re.split(r"[\s:;,\-_/]+", lowered)
-
         aliases = {
             r"^(addm|addmem|addmem)$": "addmem",
             r"^(fmem|fdel|forget|fmem)$": "fmem",
@@ -588,30 +775,22 @@ class RockyAgent:
             r"^(broimmortal|immortal personality|immortal)$": "broimmortal",
             r"^(broghost|ghost personality|ghost)$": "broghost",
         }
-
-        # 1) Direct regex match on whole line
         for pattern, full in aliases.items():
             if re.search(pattern, lowered, re.IGNORECASE):
                 return full
-
-        # 2) Token-based fallback
         for token in tokens:
             for pattern, full in aliases.items():
                 if re.fullmatch(pattern, token, re.IGNORECASE):
                     return full
         return None
 
-    # ----------------- Core Reply -----------------
     def reply(self, user_message: str, auto_save: bool = True, use_llm: bool = False) -> str:
         self._log_user(user_message)
         msg = (user_message or "").strip()
-
-        # Command detection
         cmd = self._extract_command(msg)
 
-        # Handle commands
+        # Command handlers (ordered)
         if cmd == "addmem":
-            # format: addmem key: value OR addmem key value
             try:
                 payload = msg.split(" ", 1)[1] if " " in msg else ""
                 if ":" in payload:
@@ -640,7 +819,6 @@ class RockyAgent:
                     reply = "⚠️ Use: fmem key"
                 else:
                     ok = forget_data(self.account, key)
-                    # remove chunked entries if any
                     idx = 0
                     while recall_data(self.account, f"{key}::chunk::{idx}"):
                         forget_data(self.account, f"{key}::chunk::{idx}")
@@ -656,7 +834,6 @@ class RockyAgent:
                 payload = msg.split(" ", 1)[1] if " " in msg else ""
                 key = payload.strip()
                 if not key:
-                    # list keys
                     mems = export_all(self.account).get("memories", {})
                     keys = [k.split("::")[-1] for k in mems.keys() if "::chunk::" not in k]
                     reply = "🧠 Memories:\n- " + "\n- ".join(keys[:100]) if keys else "📭 No memories found."
@@ -665,7 +842,6 @@ class RockyAgent:
                     if not doc:
                         reply = f"⚠️ No memory for '{key}'"
                     else:
-                        # assemble chunks if present
                         chunks = []
                         idx = 0
                         while True:
@@ -741,9 +917,6 @@ class RockyAgent:
             self._log_assistant(reply)
             return reply
 
-        # If not a command → normal reply pipeline
-        return self._normal_reply_flow(msg, auto_save=auto_save, use_llm=use_llm)
-        
         if cmd == "broimmortal":
             new = elevate_personality(self.account, level="immortal")
             self.personality = new
@@ -751,7 +924,7 @@ class RockyAgent:
             remember_data(self.account, f"personality_log::{now_iso()}", {"action": "immortal", "traits": new})
             self._log_assistant(reply)
             return reply
-          
+
         if cmd == "broghost":
             new = {**DEFAULT_PERSONALITY, **GHOST_PERSONALITY}
             self.personality = new
@@ -760,8 +933,11 @@ class RockyAgent:
             remember_data(self.account, f"personality_log::{now_iso()}", {"action": "ghost", "traits": new})
             self._log_assistant(reply)
             return reply
- 
-    # ----------------- Fact Helpers -----------------
+
+        # Not a command -> normal flow
+        return self._normal_reply_flow(msg, auto_save=auto_save, use_llm=use_llm)
+
+    # Fact helpers
     def _forget_fact(self, key: str):
         if not key:
             return "⚠️ No key provided."
@@ -770,28 +946,24 @@ class RockyAgent:
 
     def _load_facts(self):
         mems = export_all(self.account).get("memories", {})
-        # return list of "key: value" strings
         return [f"{k.split('::')[-1]}: {v.get('value')}" for k, v in mems.items()]
 
     def _generate_report(self):
         mems = export_all(self.account).get("memories", {})
         return f"📊 Report: {len(mems)} memories stored."
 
-    # ----------------- Normal reply flow -----------------
+    # Normal reply flow
     def _normal_reply_flow(self, msg: str, auto_save: bool = True, use_llm: bool = False) -> str:
-        # 1) Extract facts and save if found
         facts = self._extract_facts(msg)
         if facts:
             self._save_facts(facts)
             saved = ", ".join([f"{k}={v}" for k, v in facts.items()])
             reply = f"✅ Noted: {saved}"
-            # attach personality signature below
             if self.personality.get("signature"):
                 reply = f"{reply} {self.personality.get('signature')}"
             self._log_assistant(reply)
             return reply
 
-        # 2) If user asks for the stored name
         lower = msg.lower()
         if ("what" in lower or "whats" in lower or "what's" in lower) and "name" in lower:
             doc = recall_data(self.account, "name")
@@ -805,11 +977,9 @@ class RockyAgent:
             self._log_assistant(reply)
             return reply
 
-        # 3) Default echo/ack with signature
         reply = f"Got it — {msg[:320]}".strip()
         if self.personality.get("signature"):
             reply = f"{reply} {self.personality.get('signature')}"
-        # style transformation
         if self.personality.get("style") == "cofounder-high-energy":
             reply = reply.upper()
         self._log_assistant(reply)
@@ -843,19 +1013,18 @@ if HAS_FASTAPI:
         max_context_messages: Optional[int] = 10
         use_llm: Optional[bool] = False
 
-    # ✅ Health check root route
     @app.get("/")
     def root():
         return {"status": "ok", "service": "rocky-soulmode"}
 
-    # ✅ Keepalive-friendly route for external pings
     @app.get("/test/selfcheck")
     def selfcheck():
         return {"ok": True, "time": now_iso()}
 
     @app.post("/remember")
     def api_remember(req: MemReq):
-        return remember_data(req.account, req.key, req.value, req.tags)
+        # keep remember_data signature simple
+        return remember_data(req.account, req.key, req.value)
 
     @app.get("/recall/{account}/{key}")
     def api_recall(account: str, key: str):
@@ -869,7 +1038,6 @@ if HAS_FASTAPI:
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
-        # auto-store email if account looks like an email
         if "@" in account:
             remember_data(account, "email", account)
         return {"status": "logged_in", "account": account}
@@ -887,11 +1055,9 @@ if HAS_FASTAPI:
         account = payload.get("account")
         if not account:
             raise HTTPException(status_code=400, detail="Missing account")
-        # init personality if not set
         if not recall_data(account, "personality"):
             set_personality(account, DEFAULT_PERSONALITY)
         remember_data(account, "session", {"status": "online", "last_seen": now_iso()})
-        # store email if looks valid
         if "@" in account:
             remember_data(account, "email", account)
         return {"status": "session_active", "account": account}
@@ -907,26 +1073,23 @@ if HAS_FASTAPI:
 
     @app.get("/search")
     def api_search(q: Optional[str] = None, account: Optional[str] = None, limit: int = 50):
-    """
-    Simple server-side search for memories.
-    Returns a JSON object: { "memories": [ { key, value, raw }, ... ] }
-    """
-    q = (q or "").strip().lower()
-    if not q:
-        return {"memories": []}
-
-    mems = export_all(account).get("memories", {})
-    results = []
-
-    for fullkey, doc in mems.items():
-        key = fullkey.split("::")[-1]
-        val = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
-        if q in str(key).lower() or q in str(val).lower():
-            results.append({"key": key, "value": val, "raw": doc})
-            if len(results) >= limit:
-                break
-
-    return {"memories": results}
+        """
+        Simple server-side search for memories.
+        Returns a JSON object: { "memories": [ { key, value, raw }, ... ] }
+        """
+        q = (q or "").strip().lower()
+        if not q:
+            return {"memories": []}
+        mems = export_all(account).get("memories", {})
+        results = []
+        for fullkey, doc in mems.items():
+            key = fullkey.split("::")[-1]
+            val = doc.get("value") if isinstance(doc, dict) and "value" in doc else doc
+            if q in str(key).lower() or q in str(val).lower():
+                results.append({"key": key, "value": val, "raw": doc})
+                if len(results) >= limit:
+                    break
+        return {"memories": results}
 
     @app.post("/log_thread")
     def api_log_thread(body: ThreadReq):
@@ -939,27 +1102,19 @@ if HAS_FASTAPI:
 
     @app.post("/sync_local/{account}")
     def api_sync_local(account: str, payload: Dict[str, Any]):
-        """
-        Merge local memories & threads sent from frontend into backend storage.
-        """
-        # Merge local memories
         for k, v in (payload.get("memories") or {}).items():
             remember_data(account, k, v.get("value") if isinstance(v, dict) else v)
-
-        # Merge local threads
         for tid, msgs in (payload.get("threads") or {}).items():
             try:
                 log_thread(account, tid, msgs)
             except Exception as e:
                 logger.warning(f"[SYNC] Failed to log thread {tid}: {e}")
-
         return {
             "status": "synced",
             "memories": len(payload.get("memories", {})),
             "threads": len(payload.get("threads", {}))
         }
 
-         
     @app.post("/agent/{account}")
     def api_agent(account: str, payload: Dict[str, Any]):
         message = payload.get("message", "")
@@ -973,20 +1128,18 @@ if HAS_FASTAPI:
         if os.path.exists(path):
             return FileResponse(path)
         return {"detail": "chat_ui.html not found"}
-      
 
-# ----------------- Demo -----------------
-    def run_demo():
-        print("Running Rocky Soulmode local demo (no network).")
-        acc = "demo_user"
-        agent = RockyAgent(acc)
-        print("User ->: My name is Alex.")
-        print("Agent ->:", agent.reply("My name is Alex."))
-        print("User ->: What's my name?")
-        print("Agent ->:", agent.reply("What's my name?"))
-        print("Exported memories:\n", json.dumps(export_all(acc), indent=2))
+# ----------------- Demo & Tests -----------------
+def run_demo():
+    print("Running Rocky Soulmode local demo (no network).")
+    acc = "demo_user"
+    agent = RockyAgent(acc)
+    print("User ->: My name is Alex.")
+    print("Agent ->:", agent.reply("My name is Alex."))
+    print("User ->: What's my name?")
+    print("Agent ->:", agent.reply("What's my name?"))
+    print("Exported memories:\n", json.dumps(export_all(acc), indent=2))
 
-# ----------------- Tests -----------------
 class CoreTests(unittest.TestCase):
     def test_memory_cycle(self):
         remember_data("tacc", "k1", "v1")
@@ -1011,25 +1164,21 @@ class CoreTests(unittest.TestCase):
         self.assertIsNotNone(doc)
         self.assertEqual(doc.get("value"), "Sam")
 
-# ----------------- Keepalive Loop (safe imports at runtime) -----------------
+# ----------------- Keepalive -----------------
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
-KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)  # default 10 min
+KEEPALIVE_INTERVAL_MS = int(os.getenv("KEEPALIVE_INTERVAL_MS") or 600000)
 
 async def keepalive_loop():
-    # import runtime-only packages here so module import doesn't fail if not present
     try:
         import httpx  # type: ignore
-        import pytz  # type: ignore
+        import pytz   # type: ignore
     except Exception as e:
         logger.warning("Keepalive loop skipped because httpx/pytz are not available: %s", e)
         return
-
     if not RENDER_EXTERNAL_URL:
         logger.warning("⚠️ No RENDER_EXTERNAL_URL set, skipping keepalive")
         return
-
     ist = pytz.timezone("Asia/Kolkata")
-
     while True:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -1067,12 +1216,13 @@ def rocky_worker_loop():
             logger.warning(f"[WORKER] Invalid TTL format: {ttl_days}")
 
     def get_accounts():
-        if firestore_client:
+        if _can_use_firestore():
             try:
                 accounts = set()
-                for doc in firestore_client.collection("memories").stream():
-                    d = doc.to_dict()
-                    accounts.add(d.get("account") or "global")
+                docs = firestore_client.collection("memories").stream(retry=Retry(deadline=10.0, maximum=1))
+                for doc in docs:
+                    d = doc.to_dict() or {}
+                    accounts.add(d.get("account") or getattr(doc, "id", "global"))
                 return list(accounts) or ["global"]
             except Exception as e:
                 logger.warning(f"[WORKER] Firestore account fetch failed: {e}")
@@ -1082,10 +1232,11 @@ def rocky_worker_loop():
         if not ttl:
             return
         cutoff = datetime.utcnow() - timedelta(days=ttl)
-        if firestore_client:
+        if _can_use_firestore():
             try:
-                for snap in firestore_client.collection("memories").document(acc).collection("items").stream():
-                    d = snap.to_dict()
+                snaps = firestore_client.collection("memories").document(acc).collection("items").stream(retry=Retry(deadline=10.0, maximum=1))
+                for snap in snaps:
+                    d = snap.to_dict() or {}
                     ts = d.get("timestamp")
                     if not ts:
                         continue
@@ -1095,7 +1246,7 @@ def rocky_worker_loop():
                         continue
                     if tdt < cutoff:
                         d["archived"] = True
-                        firestore_client.collection("memories").document(acc).collection("items").document(snap.id).set(d)
+                        firestore_client.collection("memories").document(acc).collection("items").document(getattr(snap, "id", "")).set(d)
                         logger.info(f"[WORKER] Archived {acc}:{d.get('key')} (TTL expired)")
             except Exception as e:
                 logger.warning(f"[WORKER] TTL Firestore cleanup failed: {e}")
@@ -1108,9 +1259,7 @@ def rocky_worker_loop():
             except Exception:
                 pass
 
-    # small warmup delay
     time.sleep(2)
-
     while True:
         try:
             accounts = get_accounts()
@@ -1155,10 +1304,8 @@ def start_worker_if_needed():
         t.start()
         logger.info("🚀 Rocky Autonomous Worker started")
 
-# Ensure worker starts when module imported (e.g. uvicorn)
 start_worker_if_needed()
 
-# Start keepalive loop in background thread if URL present
 if RENDER_EXTERNAL_URL:
     try:
         threading.Thread(target=start_keepalive, daemon=True).start()
@@ -1176,7 +1323,7 @@ def save_report(acc: str, period: str):
         "time": now_iso(),
         "total_msgs": len(msgs),
         "total_reflections": len(reflections),
-        "highlights": reflections[-3:],  # last few
+        "highlights": reflections[-3:],
     }
     remember_data(acc, f"report::{period}::{now_iso()}", report)
     logger.info(f"[REPORT] Saved {period} report for {acc}")
@@ -1198,17 +1345,3 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
