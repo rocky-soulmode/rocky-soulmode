@@ -23,7 +23,42 @@ import requests
 import random
 import traceback
 from datetime import datetime, timedelta
+from google.api_core.exceptions import ResourceExhausted
 from typing import List, Optional, Dict, Any
+
+# ----------------- Redis (Upstash REST) -----------------
+UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL", "https://bright-aardvark-8251.upstash.io")
+UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN", "ASA7AAImcDIxY2U0MTVlODY0ZTY0ZmFmOGQ5ODc0Y2UwYjg3MjI5NXAyODI1MQ")
+
+def redis_rest_cmd(command: str, *args):
+    """Send a Redis command to Upstash via REST API."""
+    try:
+        url = f"{UPSTASH_URL}/{command}"
+        headers = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
+        payload = [str(a) for a in args]
+        res = requests.post(url, headers=headers, json=payload, timeout=5)
+        res.raise_for_status()
+        data = res.json()
+        return data.get("result")
+    except Exception as e:
+        logger.warning(f"[Redis REST] {command} failed: {e}")
+        return None
+
+def cache_set(key: str, value: Any, ttl: int = 60):
+    try:
+        redis_rest_cmd("setex", key, ttl, json.dumps(value))
+    except Exception as e:
+        logger.warning(f"[Cache] Failed set {key}: {e}")
+
+def cache_get(key: str) -> Optional[Any]:
+    try:
+        val = redis_rest_cmd("get", key)
+        if val:
+            return json.loads(val)
+    except Exception as e:
+        logger.warning(f"[Cache] Failed get {key}: {e}")
+    return None
+# --------------------------------------------------------
 
 # Optional / third-party flags
 HAS_FASTAPI = False
@@ -247,33 +282,111 @@ def fetch_thread_messages(account: Optional[str], thread_id: str) -> List[Dict[s
     return _local_threads.get(acc, {}).get(thread_id, [])
 
 # ----------------- Scan & Respond -----------------
-def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Optional[str], max_context: int = 10, use_llm: bool = False) -> Dict[str, Any]:
+def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Optional[str],
+                     max_context: int = 10, use_llm: bool = False,
+                     thread_fetch_limit: int = 5, delta_limit: int = 50) -> Dict[str, Any]:
     acc = account or "global"
     messages: List[Dict[str, Any]] = []
+
+    # ---------------- Redis Cache Check ----------------
+    cache_key = f"threads:{acc}:{thread_id or 'all'}:{query or 'noq'}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+    # ---------------------------------------------------
+
+    # 1) Specific thread
     if thread_id:
         messages = fetch_thread_messages(acc, thread_id)
     else:
+        # 2) Merge in-memory cache
         for msgs in _local_threads.get(acc, {}).values():
             messages.extend(msgs)
+
+        # 3) Firestore delta/limited fetch
         if firestore_client:
+            last_sync_iso = _local_memory.get(acc, {}).get("_last_threads_sync")
+            now_iso_ts = now_iso()
             try:
-                docs = firestore_client.collection("threads").where("account", "==", acc).stream()
+                if last_sync_iso:
+                    try:
+                        docs_query = (
+                            firestore_client.collection("threads")
+                            .where("account", "==", acc)
+                            .where("updated_at", ">=", last_sync_iso)
+                            .order_by("updated_at", direction="ASCENDING")
+                            .limit(delta_limit)
+                        )
+                        docs = docs_query.stream()
+                    except Exception:
+                        docs = (
+                            firestore_client.collection("threads")
+                            .where("account", "==", acc)
+                            .order_by("timestamp", direction="DESCENDING")
+                            .limit(thread_fetch_limit)
+                            .stream()
+                        )
+                else:
+                    docs = (
+                        firestore_client.collection("threads")
+                        .where("account", "==", acc)
+                        .order_by("timestamp", direction="DESCENDING")
+                        .limit(thread_fetch_limit)
+                        .stream()
+                    )
+
+                read_docs = 0
                 for d in docs:
-                    messages.extend(d.to_dict().get("messages", []))
+                    read_docs += 1
+                    payload = d.to_dict()
+                    thread_msgs = payload.get("messages", [])
+                    if isinstance(thread_msgs, list):
+                        messages.extend(thread_msgs)
+
+                _local_memory.setdefault(acc, {})["_last_threads_sync"] = now_iso_ts
+                _local_memory.setdefault(acc, {}).setdefault("_usage", {"reads": 0, "writes": 0})
+                _local_memory[acc]["_usage"]["reads"] += read_docs
+
+            except ResourceExhausted:
+                logger.warning(f"[Firestore] Quota exceeded for {acc}, using cache only.")
+                _local_memory.setdefault(acc, {}).setdefault("_quota_events", 0)
+                _local_memory[acc]["_quota_events"] += 1
             except Exception as e:
                 log_firestore_error("scan", acc, "threads", e)
+
+    # 4) Query filter
     if query:
-        messages = [m for m in messages if re.search(query, m.get("content", ""), re.I)]
-    context = messages[-max_context:]
+        try:
+            messages = [m for m in messages if re.search(query, m.get("content", ""), re.I)]
+        except re.error:
+            qlow = query.lower()
+            messages = [m for m in messages if qlow in (m.get("content") or "").lower()]
+
+    # 5) Context slice
+    context = messages[-max_context:] if messages else []
+
+    # 6) Summary
     summary = extractive_summary(context, max_sentences=4)
+
+    # 7) LLM suggestion
     suggested = ""
     if use_llm and HAS_OPENAI:
         try:
             prompt = f"Summary:\n{summary}\n\nUser Query: {query or ''}\n"
-            resp = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}], max_tokens=300, temperature=0.2)
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=300,
+                temperature=0.2
+            )
             suggested = resp["choices"][0]["message"]["content"].strip()
         except Exception as e:
             logger.warning(f"[LLM] OpenAI call failed: {e}")
+
+    # 8) Fallback
     if not suggested:
         if query:
             suggested = f"Based on the chat summary: {summary}. Suggestion: answer the query directly and confirm next steps."
@@ -283,7 +396,21 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
                 suggested = f"Reply to user's latest message: '{latest_user.get('content')[:280]}' — acknowledge and provide next action."
             else:
                 suggested = f"No user messages found. Summary: {summary or 'none'}."
-    return {"summary": summary, "suggested_reply": suggested, "scanned_count": len(messages)}
+
+    usage_snapshot = _local_memory.get(acc, {}).get("_usage", {"reads": 0, "writes": 0, "last_reset": now_iso()})
+    result = {
+        "summary": summary,
+        "suggested_reply": suggested,
+        "scanned_count": len(messages),
+        "usage": usage_snapshot
+    }
+
+    # ---------------- Save to Redis Cache ----------------
+    cache_set(cache_key, result, ttl=60)  # cache for 1 minute
+    # -----------------------------------------------------
+
+    return result
+
 
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
@@ -1049,6 +1176,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
