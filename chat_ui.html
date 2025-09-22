@@ -201,36 +201,6 @@
       </div>
       <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="margin-top:8px"></textarea>
 <button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
-<!-- >>> safe-globals bootstrap (rocky quick patch) -->
-<script>
-  // Minimal global helpers to avoid early inline script crashes.
-  // Must be defined BEFORE any other inline script that uses $ or window.Rocky.*
-  window.$ = window.$ || function(id) { return document.getElementById(id); };
-  window.esc = window.esc || function(s) { return s == null ? '' : String(s); };
-
-  // Ensure minimal Rock object and safe no-op fallbacks so early code won't blow up.
-  window.Rocky = window.Rocky || {};
-  window.Rocky.fetchJSON = window.Rocky.fetchJSON || (async function(url, opts = {}) {
-    const res = await fetch(url, opts).catch(() => null);
-    if (!res) return null;
-    try { const ct = res.headers.get && res.headers.get('content-type') || ''; return ct.includes('application/json') ? await res.json() : null; } catch(e) { return null; }
-  });
-  window.Rocky.appendAssistant = window.Rocky.appendAssistant || function(msg) {
-    const msgs = document.getElementById('msgs');
-    if (msgs) {
-      const d = document.createElement('div');
-      d.className = 'msg assistant';
-      d.innerHTML = `<strong>Assistant:</strong> ${String(msg)}`;
-      msgs.appendChild(d);
-      msgs.scrollTop = msgs.scrollHeight;
-    } else {
-      console.log('Assistant:', msg);
-    }
-  };
-  window.Rocky.pushLocalMemory = window.Rocky.pushLocalMemory || function(){};
-  window.Rocky.pushLocalThread = window.Rocky.pushLocalThread || function(){};
-</script>
-<!-- <<< end safe-globals bootstrap -->
 
 <script>
 /*
@@ -422,12 +392,8 @@
       const resImmortal = await fetch(`${API}/recall/${encodeURIComponent(account)}/immortalPers`);
       const immortal = resImmortal.ok ? (await resImmortal.json()).value || (await resImmortal.json()) : null;
       const ghost = await fetchJSON(`${API}/recall/${encodeURIComponent(account)}/ghostPers`);
-      const ghostEl = document.getElementById('ghostPers');
-        if (ghostEl) {
-        ghostEl.checked = !!(ghost?.value || ghost);
-        if (ghostEl.checked) await pingAgent('bro ghost', true);
-      }
-
+      $('ghostPers').checked = !!(ghost?.value || ghost);
+      if ($('ghostPers').checked) await pingAgent('bro ghost', true);
 
       if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!(highest?.value || highest);
       if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!(immortal?.value || immortal);
@@ -488,6 +454,7 @@ if (ghostPersEl) {
     await pingAgent(on ? 'bro ghost' : 'bro personality reset');
   });
 }
+
     async function pingAgent(msg, silent=false) {
     const account = localStorage.getItem('rocky_account') || '';
     if (!account) return;
@@ -550,19 +517,6 @@ if (ghostPersEl) {
 </script>
 
 <script>
-/* Manual restore via Load Personality button */
-  const loadPersBtn = document.getElementById('loadPers');
-  if (loadPersBtn) {
-    loadPersBtn.addEventListener('click', async () => {
-      await restorePersonalityFlags();
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant('♻ Personality toggles restored (manual)');
-      else console.log('♻ Personality toggles restored (manual)');
-    });
-  }
-
-  // note: we replaced top-level await(loadMemories) calls with non-await safe calls below
-
-<script>
 /* =========================
    Production-ready JS (fixed)
    - grouped into a single IIFE so helpers are defined before use
@@ -590,9 +544,7 @@ if (ghostPersEl) {
   window.Rocky.API_BASE = API;
 
   // === Short helpers ===
-  // ensure a global $ exists and also keep a local $ reference
-  window.$ = window.$ || (id => document.getElementById(id));
-  const $ = window.$;
+  const $ = id => document.getElementById(id);
   const esc = s => s == null ? '' : String(s);
   const nowISO = () => (new Date()).toISOString();
   const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
@@ -859,7 +811,6 @@ if (ghostPersEl) {
 
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
-
 
   // === Sync local -> server ===
   async function tryAutoSync(force = false) {
@@ -1130,180 +1081,87 @@ if (ghostPersEl) {
     });
   }
 
-  // quick insert tools
-  if ($('insertLastMem')) $('insertLastMem').addEventListener('click', () => {
-    if ($('messageBox')) $('messageBox').value += memEntries.slice(-3).map(m => `${m.key}: ${m.value}`).join('\n');
-  });
-  if ($('insertLastHist')) $('insertLastHist').addEventListener('click', () => {
-    const hist = (getLocal(account).threads && getLocal(account).threads.session || []).slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
-    if ($('messageBox')) $('messageBox').value += '\n\n' + hist;
-  });
-
-  // forget all local
-  if ($('forgetAll')) $('forgetAll').addEventListener('click', () => {
-    if (!account) return;
-    localStorage.removeItem(localStoreKey(account));
-    appendAssistant('All local memories cleared');
-    loadMemories();
-  });
-
-  // export all in settings modal
-  if ($('exportAll')) $('exportAll').addEventListener('click', triggerExport);
-
-  // Insert last 3 mems into composer (ref button)
-  if ($('refMemsBtn')) {
-    $('refMemsBtn').addEventListener('click', () => {
-      if (!memEntries.length) {
-        alert('No memories available');
-        return;
-      }
-      const slice = memEntries.slice(-3);
-      const text = slice.map(m => `${m.key}: ${m.value}`).join('\n');
-      const box = $('messageBox');
-      if (box) {
-        box.value = (box.value ? box.value + '\n' : '') + text;
-        box.focus();
-      }
-    });
-  }
-
-  /* === Sidebar navigation toggle === */
-  function showPanel(panelId) {
-    // hide all panels
-    ['chatPanel', 'memoryPanel', 'settingsPanel'].forEach(id => {
-      const el = $(id);
-      if (el) el.classList.add('hidden');
-    });
-
-    // deactivate all nav buttons
-    ['navChat', 'navMemory', 'navSettings'].forEach(id => {
-      const btn = $(id);
-      if (btn) btn.classList.remove('active');
-      if (btn) btn.setAttribute('aria-pressed', 'false');
-    });
-
-    // show requested panel
-    const panel = $(panelId);
-    if (panel) panel.classList.remove('hidden');
-
-    // mark correct button active
-    if (panelId === 'chatPanel') {
-      if ($('navChat')) { $('navChat').classList.add('active'); $('navChat').setAttribute('aria-pressed', 'true'); }
-    }
-    if (panelId === 'memoryPanel') {
-      if ($('navMemory')) { $('navMemory').classList.add('active'); $('navMemory').setAttribute('aria-pressed', 'true'); }
-      loadMemories(); // refresh memory list when opened
-    }
-    if (panelId === 'settingsPanel') {
-      if ($('navSettings')) { $('navSettings').classList.add('active'); $('navSettings').setAttribute('aria-pressed', 'true'); }
-    }
-  }
-
-  if ($('navChat')) $('navChat').onclick = () => showPanel('chatPanel');
-  if ($('navMemory')) $('navMemory').onclick = () => showPanel('memoryPanel');
-  if ($('navSettings')) $('navSettings').onclick = () => showPanel('settingsPanel');
-
-  /* === Default Startup === */
-  document.addEventListener('DOMContentLoaded', () => {
-    showPanel('chatPanel');
-    if ($('navChat')) { $('navChat').classList.add('active'); $('navChat').setAttribute('aria-pressed', 'true'); }
-  });
-
-  // === Login / Session ===
+  // lightweight login/logout handlers
   if ($('login')) {
-    $('login').addEventListener('click', async () => {
-      const em = ($('email').value || '').trim();
-      if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('Enter a valid email'); return; }
-      account = em;
+    $('login').addEventListener('click', () => {
+      const email = ($('email') && $('email').value || '').trim();
+      if (!email) return alert('Enter an email to login');
+      account = email;
       localStorage.setItem('rocky_account', account);
       showLoginUI();
-      try {
-        // try to create server session silently
-        await fetchJSON(API + '/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account }) });
-      } catch (e) { /* ignore */ }
-      try {
-        await fetchJSON(API + '/remember', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account, key: 'email', value: account }) });
-      } catch (e) { /* ignore */ }
-      appendAssistant(`Logged in as ${account}`);
-      await loadMemories();
-
-      // 🚀 Auto-restore Highest + Immortal Personality on login
-      try {
-        await restorePersonalityFlags(true);
-        appendAssistant('♻ Personality toggles restored & agent synced (auto)');
-      } catch (e) { /* ignore */ }
+      appendAssistant(`✅ Logged in as ${account}`);
+      setTimeout(() => loadMemories(), 150);
+      restorePersonalityDropdown();
     });
   }
-
   if ($('logout')) {
     $('logout').addEventListener('click', () => {
       localStorage.removeItem('rocky_account');
       account = '';
-      if ($('email')) $('email').value = '';  // clear UI
       showLoginUI();
-      appendAssistant('Logged out');
-      memEntries = [];
-      renderMemList([]);
-      showPanel('chatPanel'); // reset to chat
+      appendAssistant('🔒 Logged out');
     });
   }
 
-  // Insert last 3 mems into composer (another ref handler - safe)
-  if ($('refMemsBtn')) {
-    $('refMemsBtn').addEventListener('click', () => {
-      if (!memEntries.length) {
-        alert('No memories available');
-        return;
+  // small helpers referenced earlier but defined here (forgetMem/openViewer)
+  async function forgetMem(key) {
+    if (!account) return alert('Login first');
+    if (!confirm(`Forget memory "${key}"?`)) return;
+    try {
+      if (serverAlive) {
+        await fetchJSON(`${API}/forget/${encodeURIComponent(account)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      } else {
+        // remove local
+        const p = getLocal(account);
+        delete p.memories[key];
+        localStorage.setItem(localStoreKey(account), JSON.stringify(p));
       }
-      const slice = memEntries.slice(-3);
-      const text = slice.map(m => `${m.key}: ${m.value}`).join('\n');
-      const box = $('messageBox');
-      if (box) {
-        box.value = (box.value ? box.value + '\n' : '') + text;
-        box.focus();
-      }
-    });
-  }
-
-  // === Init ===
-  (async function init() {
-    if (account) {
-      if ($('email')) $('email').value = account;
-      showLoginUI();
-      appendAssistant('Welcome back — account loaded');
+      appendAssistant(`🗑 Forgot "${key}"`);
       await loadMemories();
-      // if server not reachable, show local cache immediately
-      if (!serverAlive) {
-        const local = getLocal(account);
-        memEntries = Object.entries(local.memories || {}).map(([k, v]) => ({ key: k, value: v.value || v, raw: v }));
-        renderMemList(memEntries, memEntries.length, 1, Math.max(1, Math.ceil(memEntries.length / pageSize)));
-      }
-    } else {
-      appendAssistant('Welcome. Login with email to namespace memory to your account.');
+    } catch (e) {
+      console.warn('forgetMem failed', e);
+      alert('Forget failed');
     }
-    if ($('navChat')) $('navChat').classList.add('active');
-    showPanel('chatPanel');
-  })();
+  }
 
-  // expose for debugging / console
+  function openViewer(it) {
+    const card = document.createElement('div');
+    card.style.padding = '12px';
+    card.style.borderRadius = '8px';
+    card.style.background = '#fff';
+    card.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)';
+    card.innerHTML = `<strong>${esc(it.key)}</strong><pre style="white-space:pre-wrap;margin-top:8px">${esc(it.value)}</pre>`;
+    appendAssistantElement(card);
+  }
+
+  function appendAssistantElement(el) {
+    const msgs = $('msgs');
+    if (!msgs) return;
+    const container = document.createElement('div');
+    container.className = 'msg assistant';
+    container.appendChild(el);
+    msgs.appendChild(container);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // pagination controls
+  if ($('prevPage')) $('prevPage').addEventListener('click', () => { if (currentPage>1) { currentPage--; loadMemories(); } });
+  if ($('nextPage')) $('nextPage').addEventListener('click', () => { currentPage++; loadMemories(); });
+
+  // expose some functions for external inline scripts
   window.Rocky.loadMemories = loadMemories;
-  window.Rocky.tryAutoSync = tryAutoSync;
-  window.Rocky.getLocal = getLocal;
-  window.Rocky.fetchJSON = fetchJSON;
-  window.Rocky.appendAssistant = appendAssistant;
+  window.Rocky.forgetMem = forgetMem;
+  window.Rocky.openViewer = openViewer;
   window.Rocky.pushLocalMemory = pushLocalMemory;
   window.Rocky.pushLocalThread = pushLocalThread;
 
+  // initial quick-load if logged in
+  if (account) {
+    setTimeout(() => { loadMemories(); restorePersonalityDropdown(); }, 200);
+  }
+
 })();
-// ---- Creativity slider live label update ----
-if ($('creativity') && $('creativityLabel')) {
-  $('creativity').addEventListener('input', e => {
-    $('creativityLabel').textContent = e.target.value;
-  });
-}
 </script>
-</div></div></div></div></div></div>
+
 </body>
 </html>
-
-
