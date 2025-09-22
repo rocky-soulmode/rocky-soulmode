@@ -514,7 +514,7 @@ if (ghostPersEl) {
   document.addEventListener('DOMContentLoaded', restorePersonalityDropdown);
 </script>
 
-  // Manual restore via Load Personality button
+/* Manual restore via Load Personality button */
   const loadPersBtn = document.getElementById('loadPers');
   if (loadPersBtn) {
     loadPersBtn.addEventListener('click', async () => {
@@ -525,8 +525,6 @@ if (ghostPersEl) {
   }
 
   // note: we replaced top-level await(loadMemories) calls with non-await safe calls below
-
-</script>
 
 <script>
 /* =========================
