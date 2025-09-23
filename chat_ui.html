@@ -20,41 +20,48 @@
       --radius: 12px;
       --max-width: 1200px;
       --font: Inter, system-ui, "Segoe UI", Arial, sans-serif;
+      --muted-2: #9aa6b2;
     }
     * { box-sizing: border-box; }
     html,body { height: 100%; margin: 0; font-family: var(--font); background: linear-gradient(180deg,#f3f7fb,#eef6fb); color: #041826; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
     a { color: inherit; text-decoration: none; }
     button { font: inherit; }
 
-    .app { display:flex; min-height:100vh; }
+    .app { display:flex; min-height:100vh; gap:18px; padding:18px; }
 
     /* Sidebar */
     .sidebar {
-      width:92px;
+      width:96px;
       background: linear-gradient(180deg,#fff,#f8fbff);
-      border-right: 1px solid rgba(2,6,23,0.04);
+      border-radius:var(--radius);
       display:flex;
       flex-direction:column;
       align-items:center;
       padding:12px;
       gap:14px;
-      position:relative;
+      position:sticky;
+      top:18px;
+      height:calc(100vh - 36px);
+      box-shadow:var(--shadow);
+      border:1px solid rgba(2,6,23,0.03);
     }
     .logo {
       width:56px; height:56px; border-radius:12px;
       background: linear-gradient(135deg,var(--accent),var(--accent-2));
-      display:flex; align-items:center; justify-content:center; color:#012; font-weight:700; box-shadow:var(--shadow);
+      display:flex; align-items:center; justify-content:center; color:#012; font-weight:700; box-shadow:0 8px 28px rgba(14,165,160,0.12);
+      font-size:18px;
     }
     .navBtn {
       width:56px; height:56px; border-radius:10px; background:transparent; border:0; cursor:pointer;
-      display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:18px;
+      display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:18px; transition:all .18s ease;
     }
+    .navBtn:hover{ transform:translateY(-3px); }
     .navBtn.active { background:var(--glass); color:var(--accent); }
     .bottomArea { margin-top:auto; }
 
     /* Main area */
     .main { flex:1; display:flex; flex-direction:column; }
-    header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid rgba(2,6,23,0.03); background:transparent; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-radius:12px; }
     .header-left { display:flex; gap:14px; align-items:center; }
     .title { font-weight:700; font-size:16px; }
     .server-status { font-size:13px; color:var(--muted); }
@@ -70,7 +77,9 @@
     /* Chat */
     .chatCol { flex:1; display:flex; flex-direction:column; height:74vh; min-width: 420px; }
     #msgs { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:10px; border-radius:10px; background:linear-gradient(180deg,#fbfeff,#f6fbff); }
-    .msg { max-width:78%; padding:12px; border-radius:10px; line-height:1.4; word-break:break-word; }
+    .msg { max-width:78%; padding:12px; border-radius:12px; line-height:1.4; word-break:break-word; box-shadow:0 4px 12px rgba(2,6,23,0.03); position:relative; transition:transform .12s ease, opacity .12s ease; }
+    .msg .meta{ display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted-2); margin-bottom:6px }
+    .msg .avatar{ width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin-right:8px }
     .user { align-self:flex-end; background:linear-gradient(90deg, rgba(14,165,160,0.12), rgba(14,165,160,0.03)); color:#053633; }
     .assistant { align-self:flex-start; background:linear-gradient(90deg, rgba(255,176,32,0.08), rgba(255,176,32,0.02)); color:#4b2f00; }
 
@@ -88,6 +97,13 @@
     .controls { display:flex; gap:6px; }
     .pager { display:flex; gap:8px; align-items:center; justify-content:center; padding-top:8px; }
     .badge { background:#eef6f5; color:#065; padding:6px 10px; border-radius:999px; font-weight:600; }
+
+    /* typing indicator */
+    .typing { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted-2); }
+    .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted-2); opacity:0.6; animation:blink 1s infinite; }
+    .dot:nth-child(2){ animation-delay:0.15s }
+    .dot:nth-child(3){ animation-delay:0.3s }
+    @keyframes blink{0%{opacity:.2;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}100%{opacity:.2;transform:translateY(0)}}
 
     /* modal */
     .modal { position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(2,6,23,0.45); display:none; align-items:center; justify-content:center; z-index:60; }
@@ -288,6 +304,7 @@
 /* =========================
    Main UI + client logic (single consolidated script)
    Safe DOM updates, robust host detection
+   Enhancements: timestamps, avatars, typing indicator, improved message rendering
    ========================= */
 (() => {
   'use strict';
@@ -295,6 +312,7 @@
   // ---- utilities ----
   const $ = id => document.getElementById(id);
   const nowISO = () => (new Date()).toISOString();
+  const nowShort = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
 
   function escapeHtml(str) {
@@ -308,7 +326,6 @@
   }
 
   // Determine API base:
-  // prefer explicit window.API, then same-origin (relative), then localhost fallback
   const explicitAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
   const host = window.location.hostname || '';
   const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
@@ -326,7 +343,6 @@
     }
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) return await res.json();
-    // If not JSON, return text
     return await res.text();
   }
   window.Rocky.fetchJSON = fetchJSON;
@@ -338,7 +354,7 @@
   let memEntries = [];
   let currentPage = 1;
   let pageSize = parseInt(document.getElementById('pageSize').value || '8', 10);
-  let valuePageSize = parseInt(document.getElementById('valuePageSize').value || '1200', 10);
+  let typingTimer = null;
 
   // UI helpers
   function setServerStatus(ok) {
@@ -368,7 +384,6 @@
   // periodic server check
   async function checkServer() {
     try {
-      // try HEAD to API root, fallback to GET if HEAD not allowed
       let ok = false;
       try {
         const r = await fetch(API + '/', { method: 'HEAD' });
@@ -396,32 +411,55 @@
   setInterval(checkServer, 3500);
   checkServer();
 
-  // chat append helpers (safe)
+  // chat append helpers (safe) with avatars + timestamps
+  function createMsgElement({role, text, time}){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = role === 'user' ? 'YOU' : 'RS';
+    avatar.style.background = role === 'user' ? 'linear-gradient(90deg, rgba(14,165,160,0.12), rgba(14,165,160,0.03))' : 'linear-gradient(90deg, rgba(255,176,32,0.08), rgba(255,176,32,0.02))';
+
+    const who = document.createElement('strong');
+    who.textContent = role === 'user' ? 'You' : 'Assistant';
+
+    const ts = document.createElement('span');
+    ts.style.marginLeft = '8px';
+    ts.style.fontWeight = 600;
+    ts.style.opacity = 0.8;
+    ts.style.fontSize = '12px';
+    ts.textContent = time || nowShort();
+
+    meta.appendChild(avatar);
+    meta.appendChild(who);
+    meta.appendChild(ts);
+
+    const content = document.createElement('div');
+    content.style.marginTop = '8px';
+    content.innerText = text || '';
+
+    wrapper.appendChild(meta);
+    wrapper.appendChild(content);
+    return wrapper;
+  }
+
   function appendUser(text) {
     const msgs = $('msgs');
     if (!msgs) return;
-    const d = document.createElement('div');
-    d.className = 'msg user';
-    const strong = document.createElement('strong');
-    strong.textContent = 'You:';
-    d.appendChild(strong);
-    const t = document.createTextNode(' ' + (text || ''));
-    d.appendChild(t);
-    msgs.appendChild(d);
+    const el = createMsgElement({role:'user', text, time: nowShort()});
+    msgs.appendChild(el);
     msgs.scrollTop = msgs.scrollHeight;
   }
 
   function appendAssistant(text) {
     const msgs = $('msgs');
     if (!msgs) { console.log('Assistant:', text); return; }
-    const d = document.createElement('div');
-    d.className = 'msg assistant';
-    const strong = document.createElement('strong');
-    strong.textContent = 'Assistant:';
-    d.appendChild(strong);
-    const t = document.createTextNode(' ' + (text || ''));
-    d.appendChild(t);
-    msgs.appendChild(d);
+    const el = createMsgElement({role:'assistant', text, time: nowShort()});
+    msgs.appendChild(el);
     msgs.scrollTop = msgs.scrollHeight;
   }
   window.Rocky.appendAssistant = appendAssistant;
@@ -434,6 +472,21 @@
     container.appendChild(el);
     msgs.appendChild(container);
     msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // typing indicator
+  function showTyping(on){
+    const existing = document.getElementById('typingIndicator');
+    if (on) {
+      if (existing) return;
+      const div = document.createElement('div');
+      div.id = 'typingIndicator';
+      div.className = 'typing';
+      div.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div><div style="margin-left:8px">Assistant is typing</div>';
+      const msgs = $('msgs'); if (!msgs) return; msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+    } else {
+      if (existing) existing.remove();
+    }
   }
 
   // local storage helpers
@@ -683,6 +736,7 @@
 
       try {
         const use_llm = !!($('useLLM') && $('useLLM').checked);
+        showTyping(true);
         const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -690,10 +744,12 @@
         });
         const j = await res.json();
         const reply = j.reply || j.suggested_reply || '[no reply]';
+        showTyping(false);
         appendAssistant(reply);
         pushLocalThread(account, 'session', { role: 'assistant', content: reply, timestamp: nowISO() });
         await loadMemories();
       } catch (e) {
+        showTyping(false);
         appendAssistant('[Server unreachable — response saved locally]');
         pushLocalThread(account, 'session', { role: 'assistant', content: '[saved locally]', timestamp: nowISO() });
       }
