@@ -109,7 +109,7 @@
 <input type="hidden" id="pageSize" value="8">
 <input type="hidden" id="valuePageSize" value="1200">
 <input type="hidden" id="autoSync" value="true">
-<input type="hidden" id="showRaw">
+<input type="hidden" id="showRaw" value="false">
 
 <div class="app" role="application" aria-label="Rocky Soulmode Chat Memory App">
   <!-- Sidebar -->
@@ -287,13 +287,51 @@
 <script>
 /* =========================
    Main UI + client logic (single consolidated script)
-   - exposes window.Rocky.* helpers used by inline handlers
-   - robust against server offline
+   Safe DOM updates, robust host detection
    ========================= */
 (() => {
   'use strict';
 
-  const API = (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') ? 'http://127.0.0.1:8000' : (window.API || 'http://127.0.0.1:8000');
+  // ---- utilities ----
+  const $ = id => document.getElementById(id);
+  const nowISO = () => (new Date()).toISOString();
+  const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Determine API base:
+  // prefer explicit window.API, then same-origin (relative), then localhost fallback
+  const explicitAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
+  const host = window.location.hostname || '';
+  const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
+  const API = explicitAPI || (isLocal ? 'http://127.0.0.1:8000' : `${window.location.protocol}//${window.location.host}`);
+
+  window.Rocky = window.Rocky || {};
+  window.Rocky.API_BASE = API;
+
+  // fetch helper with better error messages
+  async function fetchJSON(url, opts = {}) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${res.status} ${res.statusText}${text ? ' - ' + text : ''}`);
+    }
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return await res.json();
+    // If not JSON, return text
+    return await res.text();
+  }
+  window.Rocky.fetchJSON = fetchJSON;
+
+  // ---- state ----
   const LOCAL_PREFIX = 'rocky_local::';
   let account = localStorage.getItem('rocky_account') || '';
   let serverAlive = false;
@@ -301,27 +339,6 @@
   let currentPage = 1;
   let pageSize = parseInt(document.getElementById('pageSize').value || '8', 10);
   let valuePageSize = parseInt(document.getElementById('valuePageSize').value || '1200', 10);
-
-  // Lightweight selectors
-  const $ = id => document.getElementById(id);
-  const esc = s => s == null ? '' : String(s);
-  const nowISO = () => (new Date()).toISOString();
-  const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
-
-  // network-aware fetch helper
-  async function fetchJSON(url, opts = {}) {
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`${res.status} ${res.statusText} ${text ? ' - ' + text : ''}`);
-    }
-    const ct = res.headers.get('content-type') || '';
-    return ct.includes('application/json') ? await res.json() : null;
-  }
-
-  window.Rocky = window.Rocky || {};
-  window.Rocky.API_BASE = API;
-  window.Rocky.fetchJSON = fetchJSON;
 
   // UI helpers
   function setServerStatus(ok) {
@@ -351,8 +368,20 @@
   // periodic server check
   async function checkServer() {
     try {
-      const r = await fetch(API + '/', { method: 'HEAD' });
-      setServerStatus(r && (r.status >= 200 && r.status < 500));
+      // try HEAD to API root, fallback to GET if HEAD not allowed
+      let ok = false;
+      try {
+        const r = await fetch(API + '/', { method: 'HEAD' });
+        ok = !!r && (r.status >= 200 && r.status < 500);
+      } catch (err) {
+        try {
+          const r2 = await fetch(API + '/', { method: 'GET' });
+          ok = !!r2 && (r2.status >= 200 && r2.status < 500);
+        } catch (e) {
+          ok = false;
+        }
+      }
+      setServerStatus(ok);
     } catch (e) {
       setServerStatus(false);
     }
@@ -367,23 +396,45 @@
   setInterval(checkServer, 3500);
   checkServer();
 
-  // Chat append helpers
+  // chat append helpers (safe)
   function appendUser(text) {
+    const msgs = $('msgs');
+    if (!msgs) return;
     const d = document.createElement('div');
     d.className = 'msg user';
-    d.innerHTML = `<strong>You:</strong> ${esc(text)}`;
-    const msgs = $('msgs');
-    if (msgs) { msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; }
+    const strong = document.createElement('strong');
+    strong.textContent = 'You:';
+    d.appendChild(strong);
+    const t = document.createTextNode(' ' + (text || ''));
+    d.appendChild(t);
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
   }
+
   function appendAssistant(text) {
+    const msgs = $('msgs');
+    if (!msgs) { console.log('Assistant:', text); return; }
     const d = document.createElement('div');
     d.className = 'msg assistant';
-    d.innerHTML = `<strong>Assistant:</strong> ${esc(text)}`;
-    const msgs = $('msgs');
-    if (msgs) { msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; }
-    else console.log('Assistant:', text);
+    const strong = document.createElement('strong');
+    strong.textContent = 'Assistant:';
+    d.appendChild(strong);
+    const t = document.createTextNode(' ' + (text || ''));
+    d.appendChild(t);
+    msgs.appendChild(d);
+    msgs.scrollTop = msgs.scrollHeight;
   }
   window.Rocky.appendAssistant = appendAssistant;
+
+  function appendAssistantElement(el) {
+    const msgs = $('msgs');
+    if (!msgs) return;
+    const container = document.createElement('div');
+    container.className = 'msg assistant';
+    container.appendChild(el);
+    msgs.appendChild(container);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
 
   // local storage helpers
   function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
@@ -466,26 +517,48 @@
       return;
     }
 
+    // bulk bar
     const bulkBar = document.createElement('div');
     bulkBar.style.marginBottom = '8px';
-    bulkBar.innerHTML = `
-      <label style="margin-right:12px">
-        <input type="checkbox" id="selectAllMem" > Select All
-      </label>
-      <button class="btn btn-ghost" id="deleteSelected">🗑 Delete Selected</button>
-    `;
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.style.marginRight = '12px';
+    const selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.id = 'selectAllMem';
+    selectAllLabel.appendChild(selectAllCheckbox);
+    selectAllLabel.appendChild(document.createTextNode(' Select All'));
+    bulkBar.appendChild(selectAllLabel);
+
+    const deleteSelectedBtn = document.createElement('button');
+    deleteSelectedBtn.className = 'btn btn-ghost';
+    deleteSelectedBtn.id = 'deleteSelected';
+    deleteSelectedBtn.textContent = '🗑 Delete Selected';
+    bulkBar.appendChild(deleteSelectedBtn);
+
     container.appendChild(bulkBar);
 
     items.forEach(it => {
       const div = document.createElement('div');
       div.className = 'memItem';
-      div.innerHTML = `
-        <input type="checkbox" class="memCheck" data-key="${esc(it.key)}" style="margin-right:8px">
-        <div style="flex:1">
-          <div class="memKey">${esc(it.key)}</div>
-          <div class="memVal">${esc(it.value)}</div>
-        </div>
-      `;
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'memCheck';
+      cb.dataset.key = it.key || '';
+
+      const left = document.createElement('div');
+      left.style.flex = '1';
+
+      const keyDiv = document.createElement('div');
+      keyDiv.className = 'memKey';
+      keyDiv.textContent = it.key || '';
+
+      const valDiv = document.createElement('div');
+      valDiv.className = 'memVal';
+      valDiv.textContent = (it.value !== undefined && it.value !== null) ? String(it.value) : '';
+
+      left.appendChild(keyDiv);
+      left.appendChild(valDiv);
 
       const controls = document.createElement('div');
       controls.className = 'controls';
@@ -504,32 +577,30 @@
 
       controls.appendChild(view);
       controls.appendChild(forget);
+
+      div.appendChild(cb);
+      div.appendChild(left);
       div.appendChild(controls);
 
       container.appendChild(div);
     });
 
-    const selectAll = $('selectAllMem');
-    if (selectAll) {
-      selectAll.addEventListener('change', () => {
-        const checks = document.querySelectorAll('.memCheck');
-        checks.forEach(cb => { cb.checked = selectAll.checked; });
-      });
-    }
+    selectAllCheckbox.addEventListener('change', () => {
+      const checks = document.querySelectorAll('.memCheck');
+      checks.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
+    });
 
-    const bulkBtn = $('deleteSelected');
-    if (bulkBtn) {
-      bulkBtn.addEventListener('click', async () => {
-        const selected = Array.from(document.querySelectorAll('.memCheck:checked')).map(cb => cb.dataset.key);
-        if (!selected.length) return alert('No memories selected');
-        if (!confirm(`Delete ${selected.length} memories?`)) return;
-        for (const key of selected) {
-          await forgetMem(key);
-        }
-        appendAssistant(`🗑 Deleted ${selected.length} memories`);
-        loadMemories();
-      });
-    }
+    deleteSelectedBtn.addEventListener('click', async () => {
+      const selected = Array.from(document.querySelectorAll('.memCheck:checked')).map(cb => cb.dataset.key);
+      if (!selected.length) return alert('No memories selected');
+      if (!confirm(`Delete ${selected.length} memories?`)) return;
+      for (const key of selected) {
+        // eslint-disable-next-line no-await-in-loop
+        await forgetMem(key);
+      }
+      appendAssistant(`🗑 Deleted ${selected.length} memories`);
+      loadMemories();
+    });
 
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
@@ -607,7 +678,7 @@
       if (!text) return;
       if (!account) return alert('Login first');
       appendUser(text);
-      $('messageBox').value = '';
+      if ($('messageBox')) $('messageBox').value = '';
       pushLocalThread(account, 'session', { role: 'user', content: text, timestamp: nowISO() });
 
       try {
@@ -646,18 +717,15 @@
     card.style.borderRadius = '8px';
     card.style.background = '#fff';
     card.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)';
-    card.innerHTML = `<strong>${esc(it.key)}</strong><pre style="white-space:pre-wrap;margin-top:8px">${esc(it.value)}</pre>`;
+    const strong = document.createElement('strong');
+    strong.textContent = it.key || '';
+    const pre = document.createElement('pre');
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.marginTop = '8px';
+    pre.textContent = (it.value !== undefined && it.value !== null) ? String(it.value) : '';
+    card.appendChild(strong);
+    card.appendChild(pre);
     appendAssistantElement(card);
-  }
-
-  function appendAssistantElement(el) {
-    const msgs = $('msgs');
-    if (!msgs) return;
-    const container = document.createElement('div');
-    container.className = 'msg assistant';
-    container.appendChild(el);
-    msgs.appendChild(container);
-    msgs.scrollTop = msgs.scrollHeight;
   }
 
   // forget memory
@@ -889,6 +957,7 @@
       for (const [k, v] of mems) {
         try {
           if (serverAlive) {
+            // eslint-disable-next-line no-await-in-loop
             await fetchJSON(`${API}/remember`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
