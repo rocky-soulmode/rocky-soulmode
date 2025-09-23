@@ -337,34 +337,34 @@
   window.Rocky.API_BASE = API;
 
     // --- Local storage helpers (single robust implementation) ---
-  function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
-  function getLocal(acc) {
-    try {
-      if (!acc) return { memories: {}, threads: {} };
-      const raw = localStorage.getItem(localStoreKey(acc));
-      const parsed = safeParseJSON(raw, null);
-      if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
-      parsed.memories = parsed.memories || {};
-      parsed.threads = parsed.threads || {};
-      return parsed;
-    } catch (e) {
-      console.warn('getLocal parse error', e);
-      return { memories: {}, threads: {} };
-    }
+  function localStoreKey(acc){ return LOCAL_PREFIX + (acc||'default'); }
+function getLocal(acc){
+  try {
+    if (!acc) return { memories: {}, threads: {} };
+    const raw = localStorage.getItem(localStoreKey(acc));
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
+    parsed.memories = parsed.memories || {};
+    parsed.threads = parsed.threads || {};
+    return parsed;
+  } catch(e){
+    console.warn('getLocal parse error', e);
+    return { memories: {}, threads: {} };
   }
-  function pushLocalMemory(acc, k, v) {
-    const p = getLocal(acc);
-    p.memories = p.memories || {};
-    p.memories[k] = { value: v, timestamp: nowISO() };
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-  }
-  function pushLocalThread(acc, tid, msg) {
-    const p = getLocal(acc);
-    p.threads = p.threads || {};
-    p.threads[tid] = p.threads[tid] || [];
-    p.threads[tid].push(msg);
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-  }
+}
+function pushLocalMemory(acc,k,v){
+  const p = getLocal(acc);
+  p.memories = p.memories || {};
+  p.memories[k] = { value: v, timestamp: (new Date()).toISOString() };
+  localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+}
+function pushLocalThread(acc,tid,msg){
+  const p = getLocal(acc);
+  p.threads = p.threads || {};
+  p.threads[tid] = p.threads[tid] || [];
+  p.threads[tid].push(msg);
+  localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+}
   window.Rocky.pushLocalMemory = pushLocalMemory;
   window.Rocky.pushLocalThread = pushLocalThread;
 
@@ -416,43 +416,114 @@
   }
   showLoginUI();
 
-  // periodic server check
   // Improved checkServer: tries /test/selfcheck, /health, then / — uses GET (not HEAD)
-  async function checkServer() {
-    try {
-      let ok = false;
-      const healthUrls = [
-        `${API}/test/selfcheck`,
-        `${API}/health`,
-        `${API}/`
-      ];
+  // ---- Consolidated health check + safe auto-sync (drop-in replacement) ----
+let _isSyncing = false;
 
-      for (const url of healthUrls) {
-        try {
-          const r = await fetch(url, { method: 'GET', cache: 'no-store' });
-          if (r && (r.status >= 200 && r.status < 500)) {
-            ok = true;
-            break;
-          }
-        } catch (err) {
-          // continue to next url
-        }
+async function checkServer() {
+  try {
+    let ok = false;
+    const healthUrls = [
+      `${API}/test/selfcheck`,
+      `${API}/health`,
+      `${API}/`
+    ];
+
+    for (const url of healthUrls) {
+      try {
+        // Use GET — some hosts reject HEAD; no-cache to force fresh result
+        const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+        // treat 2xx-4xx <500 as "server reachable" — we only care that host responded
+        if (r && r.status >= 200 && r.status < 500) { ok = true; break; }
+      } catch (err) {
+        // try next health URL
       }
-      setServerStatus(ok);
-    } catch (e) {
-      setServerStatus(false);
+    }
+    setServerStatus(ok);
+  } catch (e) {
+    console.warn('checkServer unexpected error', e);
+    setServerStatus(false);
+  }
+
+  // attempt auto-sync only when server reported alive and account exists
+  try {
+    const autoEl = document.getElementById('autoSync');
+    const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
+    if (serverAlive && account && (autoValue === "true")) {
+      // guard against overlapping syncs
+      if (!_isSyncing) {
+        try {
+          _isSyncing = true;
+          await tryAutoSync();
+        } catch (syncErr) {
+          console.warn('tryAutoSync failed', syncErr);
+        } finally {
+          _isSyncing = false;
+        }
+      } else {
+        // already syncing — skip
+      }
+    }
+  } catch (e) {
+    console.warn('checkServer autoSync fail', e);
+  }
+}
+
+// clear previous interval if present (safe to call multiple times)
+if (window._rocky_health_interval) {
+  clearInterval(window._rocky_health_interval);
+  window._rocky_health_interval = null;
+}
+window._rocky_health_interval = setInterval(checkServer, 3500);
+// run initial check quickly
+setTimeout(checkServer, 300);
+
+/**
+ * Safe tryAutoSync: posts local data if present.
+ * - Uses getLocal(account) which must exist in your script.
+ * - Clears only the account-local key on success.
+ */
+async function tryAutoSync(force = false) {
+  if (!account) {
+    // allow a console override for debugging
+    if (window._rocky_account_override) {
+      account = window._rocky_account_override;
+      localStorage.setItem('rocky_account', account);
+      showLoginUI();
+    } else return;
+  }
+
+  const local = getLocal(account) || { memories: {}, threads: {} };
+  const hasMem = local.memories && Object.keys(local.memories).length;
+  const hasThreads = local.threads && Object.keys(local.threads).length;
+  const has = (hasMem || hasThreads);
+
+  if (!has && !force) return;
+
+  try {
+    const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(local)
+    });
+
+    if (!res.ok) {
+      // log server message for debugging
+      const txt = await res.text().catch(() => '');
+      console.warn('sync_local returned', res.status, txt);
+      return;
     }
 
-    // only auto-sync if account is set and server is live
-    try {
-      // safe guard: read DOM element safely
-      const autoEl = document.getElementById('autoSync');
-      const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
-      if (serverAlive && account && (autoValue === "true")) {
-        tryAutoSync();
-      }
-    } catch (e) { console.warn('checkServer autoSync fail', e); }
+    // success: remove only the local store for this account
+    try { localStorage.removeItem(localStoreKey(account)); } catch(e){ console.warn('remove local cache failed', e); }
+    appendAssistant('Local data synced to server');
+    try { await loadMemories(); } catch (e) { console.warn('loadMemories after sync failed', e); }
+
+  } catch (e) {
+    console.warn('tryAutoSync network/error', e);
   }
+}
+
 
   // make interval controllable / stoppable for debugging
   if (window._rocky_health_interval) {
@@ -1188,6 +1259,7 @@
 
 </body>
 </html>
+
 
 
 
