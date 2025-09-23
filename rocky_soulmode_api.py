@@ -439,7 +439,10 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
 
     # Redis Cache Check
     cache_key = f"threads:{acc}:{thread_id or 'all'}:{query or 'noq'}"
-    cached = cache_get(cache_key)
+    try:
+        cached = cache_get(cache_key)
+    except Exception:
+        cached = None
     if cached:
         return cached
 
@@ -601,12 +604,18 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         "usage": usage_snapshot
     }
 
-    # persist to cache for identical requests (optional
+    # persist to cache for identical requests (optional)
     try:
         cache_set(cache_key, result, ttl=120)  # tune ttl if you want
+    except Exception:
+        # Non-fatal: caching failure should not break returning the result
+        try:
+            logger.exception("cache_set failed for key %s", cache_key)
         except Exception:
-        pass
-        return result
+            pass
+
+    return result
+
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
     "tone": "professional-friendly",
@@ -1351,6 +1360,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
