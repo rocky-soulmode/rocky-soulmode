@@ -601,12 +601,12 @@ def scan_and_respond(account: Optional[str], thread_id: Optional[str], query: Op
         "usage": usage_snapshot
     }
 
-# persist to cache for identical requests (optional
-  try:
-    cache_set(cache_key, result, ttl=120)  # tune ttl if you want
-    except Exception:
-    pass
-    return result
+    # persist to cache for identical requests (optional
+    try:
+        cache_set(cache_key, result, ttl=120)  # tune ttl if you want
+        except Exception:
+        pass
+        return result
 # ----------------- Personality helpers -----------------
 DEFAULT_PERSONALITY = {
     "tone": "professional-friendly",
@@ -1351,6 +1351,7 @@ if __name__ == '__main__':
             run_demo()
     else:
         run_demo()
+
 
 
 
