@@ -585,28 +585,7 @@
     }
   }
 
-  // local storage helpers
-  function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
-  function getLocal(acc) {
-    const raw = localStorage.getItem(localStoreKey(acc));
-    return safeParseJSON(raw, { memories: {}, threads: {} });
-  }
-  function pushLocalMemory(acc, k, v) {
-    const p = getLocal(acc);
-    p.memories = p.memories || {};
-    p.memories[k] = { value: v, timestamp: nowISO() };
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-  }
-  function pushLocalThread(acc, tid, msg) {
-    const p = getLocal(acc);
-    p.threads = p.threads || {};
-    p.threads[tid] = p.threads[tid] || [];
-    p.threads[tid].push(msg);
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-  }
-  window.Rocky.pushLocalMemory = pushLocalMemory;
-  window.Rocky.pushLocalThread = pushLocalThread;
-
+ 
   // Memory CRUD & UI
   async function loadMemories(q = null) {
     if (!account) return;
@@ -1209,6 +1188,7 @@
 
 </body>
 </html>
+
 
 
 
