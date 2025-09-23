@@ -991,7 +991,7 @@
       }
     });
   }
-
+  
   // bulk add handler
   if ($('bulkAddBtn')) {
     $('bulkAddBtn').addEventListener('click', async () => {
@@ -1038,8 +1038,53 @@
     setTimeout(() => { loadMemories(); }, 200);
   }
 
+    // ----- Navigation (Chat / Memories / Settings) -----
+  (function wireNavigation() {
+   function showPanel(name){
+    const chat = $('chatPanel');
+    const mem  = $('memoryPanel');
+    const set  = $('settingsPanel');
+    const navChat = $('navChat');
+    const navMemory = $('navMemory');
+    const navSettings = $('navSettings');
+
+    if(chat) chat.classList.toggle('hidden', name !== 'chat');
+    if(mem)  mem.classList.toggle('hidden', name !== 'memories');
+    if(set)  set.classList.toggle('hidden', name !== 'settings');
+
+    if(navChat)    navChat.classList.toggle('active', name === 'chat');
+    if(navMemory)  navMemory.classList.toggle('active', name === 'memories');
+    if(navSettings)navSettings.classList.toggle('active', name === 'settings');
+
+    if(navChat)    navChat.setAttribute('aria-pressed', name === 'chat');
+    if(navMemory)  navMemory.setAttribute('aria-pressed', name === 'memories');
+    if(navSettings)navSettings.setAttribute('aria-pressed', name === 'settings');
+
+    // If opening memories, ensure data is fresh
+    if (name === 'memories') {
+        try { loadMemories(); } catch(e){ console.warn('loadMemories error', e); }
+    }
+  }
+
+  const navChatBtn = $('navChat'); if (navChatBtn) navChatBtn.addEventListener('click', () => showPanel('chat'));
+  const navMemBtn  = $('navMemory'); if (navMemBtn)  navMemBtn.addEventListener('click', () => showPanel('memories'));
+  const navSetBtn  = $('navSettings'); if (navSetBtn) navSetBtn.addEventListener('click', () => showPanel('settings'));
+
+  // keyboard shortcuts (1 = Chat, 2 = Memories, 3 = Settings)
+  window.addEventListener('keydown', (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.key === '1') showPanel('chat');
+      if (e.key === '2') showPanel('memories');
+      if (e.key === '3') showPanel('settings');
+  });
+
+  // default view
+  showPanel('chat');
+  })();
+
 })();
 </script>
 
 </body>
 </html>
+
