@@ -325,14 +325,17 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Determine API base:
+  // Determine API base — prefer explicit window.API, then deployed Render, then same-origin, then localhost
   const explicitAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
+  // safe default: point to deployed Render service unless overridden
+  const RENDER_DEFAULT = 'https://rocky-soulmode.onrender.com';
   const host = window.location.hostname || '';
   const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
-  const API = explicitAPI || (isLocal ? 'http://127.0.0.1:8000' : `${window.location.protocol}//${window.location.host}`);
+  const API = explicitAPI || RENDER_DEFAULT || (isLocal ? 'http://127.0.0.1:8000' : `${window.location.protocol}//${window.location.host}`);
 
   window.Rocky = window.Rocky || {};
   window.Rocky.API_BASE = API;
+
 
   // fetch helper with better error messages
   async function fetchJSON(url, opts = {}) {
@@ -383,24 +386,35 @@
 
   // periodic server check
   async function checkServer() {
-    try {
+   try {
       let ok = false;
-      try {
-        const r = await fetch(API + '/', { method: 'HEAD' });
-        ok = !!r && (r.status >= 200 && r.status < 500);
-      } catch (err) {
+   
+   // Prefer explicit health endpoint if available
+      const healthUrls = [
+        `${API}/test/selfcheck`,
+        `${API}/health`,
+        `${API}/`
+      ];
+   
+      for (const url of healthUrls) {
         try {
-          const r2 = await fetch(API + '/', { method: 'GET' });
-          ok = !!r2 && (r2.status >= 200 && r2.status < 500);
-        } catch (e) {
-          ok = false;
+          // use GET because some hosts reject HEAD
+          const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+          if (r && r.status >= 200 && r.status < 500) {
+            ok = true;
+            break;
+          }
+        } catch (err) {
+          // try next URL
+          ok = ok || false;
         }
       }
+
       setServerStatus(ok);
     } catch (e) {
       setServerStatus(false);
     }
-
+    // only auto-sync if account is set and server is live
     try {
       const auto = document.getElementById('autoSync');
       if (serverAlive && account && (auto && auto.value === "true")) {
@@ -659,10 +673,14 @@
   }
 
   // Sync local -> server
-  async function tryAutoSync(force = false) {
-    if (!account) return;
-    const local = getLocal(account);
-    const has = ((local.memories && Object.keys(local.memories).length) || (local.threads && Object.keys(local.threads).length));
+    async function tryAutoSync(force = false) {
+    if (!account) return; // nothing to sync
+
+    const local = getLocal(account) || { memories: {}, threads: {} };
+    const hasMem = local.memories && Object.keys(local.memories).length;
+    const hasThreads = local.threads && Object.keys(local.threads).length;
+    const has = (hasMem || hasThreads);
+
     if (!has && !force) return;
     try {
       const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
@@ -681,6 +699,7 @@
       console.warn('sync failed', e);
     }
   }
+
   if ($('syncBtn')) $('syncBtn').addEventListener('click', () => tryAutoSync(true));
 
   // Search
@@ -701,6 +720,7 @@
   async function triggerExport() {
     if (!account) return alert('Login first');
     try {
+    
       const res = await fetch(`${API}/export/${encodeURIComponent(account)}`);
       const data = await res.json();
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1087,4 +1107,5 @@
 
 </body>
 </html>
+
 
