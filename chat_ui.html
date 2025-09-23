@@ -326,15 +326,47 @@
   }
 
   // Determine API base — prefer explicit window.API, then deployed Render, then same-origin, then localhost
-  const explicitAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
-  // safe default: point to deployed Render service unless overridden
+  const explicitWindowAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
+  const explicitWindowAPIBase = (typeof window.API_BASE === 'string' && window.API_BASE.trim()) ? window.API_BASE.trim() : null;
   const RENDER_DEFAULT = 'https://rocky-soulmode.onrender.com';
   const host = window.location.hostname || '';
   const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
-  const API = explicitAPI || RENDER_DEFAULT || (isLocal ? 'http://127.0.0.1:8000' : `${window.location.protocol}//${window.location.host}`);
+  const API = explicitWindowAPI || explicitWindowAPIBase || RENDER_DEFAULT || `${window.location.protocol}//${window.location.host}`;
 
   window.Rocky = window.Rocky || {};
   window.Rocky.API_BASE = API;
+
+    // --- Local storage helpers (single robust implementation) ---
+  function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
+  function getLocal(acc) {
+    try {
+      if (!acc) return { memories: {}, threads: {} };
+      const raw = localStorage.getItem(localStoreKey(acc));
+      const parsed = safeParseJSON(raw, null);
+      if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
+      parsed.memories = parsed.memories || {};
+      parsed.threads = parsed.threads || {};
+      return parsed;
+    } catch (e) {
+      console.warn('getLocal parse error', e);
+      return { memories: {}, threads: {} };
+    }
+  }
+  function pushLocalMemory(acc, k, v) {
+    const p = getLocal(acc);
+    p.memories = p.memories || {};
+    p.memories[k] = { value: v, timestamp: nowISO() };
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
+  function pushLocalThread(acc, tid, msg) {
+    const p = getLocal(acc);
+    p.threads = p.threads || {};
+    p.threads[tid] = p.threads[tid] || [];
+    p.threads[tid].push(msg);
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
+  window.Rocky.pushLocalMemory = pushLocalMemory;
+  window.Rocky.pushLocalThread = pushLocalThread;
 
 
   // fetch helper with better error messages
@@ -385,45 +417,95 @@
   showLoginUI();
 
   // periodic server check
+  // Improved checkServer: tries /test/selfcheck, /health, then / — uses GET (not HEAD)
   async function checkServer() {
-   try {
+    try {
       let ok = false;
-   
-   // Prefer explicit health endpoint if available
       const healthUrls = [
         `${API}/test/selfcheck`,
         `${API}/health`,
         `${API}/`
       ];
-   
+
       for (const url of healthUrls) {
         try {
-          // use GET because some hosts reject HEAD
           const r = await fetch(url, { method: 'GET', cache: 'no-store' });
-          if (r && r.status >= 200 && r.status < 500) {
+          if (r && (r.status >= 200 && r.status < 500)) {
             ok = true;
             break;
           }
         } catch (err) {
-          // try next URL
-          ok = ok || false;
+          // continue to next url
         }
       }
-
       setServerStatus(ok);
     } catch (e) {
       setServerStatus(false);
     }
+
     // only auto-sync if account is set and server is live
     try {
-      const auto = document.getElementById('autoSync');
-      if (serverAlive && account && (auto && auto.value === "true")) {
+      // safe guard: read DOM element safely
+      const autoEl = document.getElementById('autoSync');
+      const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
+      if (serverAlive && account && (autoValue === "true")) {
         tryAutoSync();
       }
-    } catch (e) {}
+    } catch (e) { console.warn('checkServer autoSync fail', e); }
   }
-  setInterval(checkServer, 3500);
-  checkServer();
+
+  // make interval controllable / stoppable for debugging
+  if (window._rocky_health_interval) {
+    clearInterval(window._rocky_health_interval);
+    window._rocky_health_interval = null;
+  }
+  window._rocky_health_interval = setInterval(checkServer, 3500);
+  // run initial check once
+  setTimeout(checkServer, 300);
+
+  // Safe tryAutoSync
+  async function tryAutoSync(force = false) {
+    if (!account) {
+      // if we have a console override, bind it
+      if (window._rocky_account_override) {
+        account = window._rocky_account_override;
+        localStorage.setItem('rocky_account', account);
+        showLoginUI();
+      } else return;
+    }
+
+    const local = getLocal(account) || { memories: {}, threads: {} };
+    const hasMem = local.memories && Object.keys(local.memories).length;
+    const hasThreads = local.threads && Object.keys(local.threads).length;
+    const has = (hasMem || hasThreads);
+
+    if (!has && !force) return;
+    try {
+      const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(local)
+      });
+      if (res.ok) {
+        localStorage.removeItem(localStoreKey(account));
+        appendAssistant('Local data synced to server');
+        await loadMemories();
+      } else {
+        console.warn('sync failed', res.status, await res.text().catch(()=>'')); // better debug
+      }
+    } catch (e) {
+      console.warn('sync failed', e);
+    }
+  }
+
+  // expose helper debug function to console
+  window.Rocky.debug = function debugRocky() {
+    console.log('API ->', API);
+    console.log('account ->', account);
+    console.log('serverAlive ->', serverAlive);
+    console.log('local ->', getLocal(account));
+    console.log('healthInterval ->', window._rocky_health_interval);
+  };
 
   // chat append helpers (safe) with avatars + timestamps
   function createMsgElement({role, text, time}){
@@ -717,21 +799,21 @@
   }
 
   // Export
-  async function triggerExport() {
+    async function triggerExport() {
     if (!account) return alert('Login first');
     try {
-    
-      const res = await fetch(`${API}/export/${encodeURIComponent(account)}`);
-      const data = await res.json();
+      const data = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${String(account).replace(/[^a-z0-9@.\-]/gi, '_')}_export.json`;
       a.click();
     } catch (e) {
-      alert('Export failed — server maybe offline');
+      console.warn('Export error', e);
+      alert('Export failed — server maybe offline or returned an unexpected response');
     }
   }
+
   if ($('exportBtn')) $('exportBtn').addEventListener('click', triggerExport);
   if ($('navExport')) $('navExport').addEventListener('click', triggerExport);
 
@@ -755,19 +837,39 @@
       pushLocalThread(account, 'session', { role: 'user', content: text, timestamp: nowISO() });
 
       try {
-        const use_llm = !!($('useLLM') && $('useLLM').checked);
+                const use_llm = !!($('useLLM') && $('useLLM').checked);
         showTyping(true);
+
+        // POST to agent; handle both JSON and text responses safely
         const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, use_llm })
         });
-        const j = await res.json();
-        const reply = j.reply || j.suggested_reply || '[no reply]';
+
+        // parse response robustly
+        let j = null;
+        try {
+          const ct = (res.headers && res.headers.get ? res.headers.get('content-type') : '') || '';
+          if (ct.includes('application/json')) {
+            j = await res.json();
+          } else {
+            // fallback to plain text responses (wrap into reply)
+            const txt = await res.text().catch(() => '');
+            j = { reply: txt || '[no reply]' };
+          }
+        } catch (err) {
+          console.warn('agent response parse error', err);
+          j = { reply: '[invalid response]' };
+        }
+
+        const reply = (j && (j.reply || j.suggested_reply)) || '[no reply]';
         showTyping(false);
         appendAssistant(reply);
         pushLocalThread(account, 'session', { role: 'assistant', content: reply, timestamp: nowISO() });
-        await loadMemories();
+
+        try { await loadMemories(); } catch(e) { console.warn('loadMemories after agent reply failed', e); }
+
       } catch (e) {
         showTyping(false);
         appendAssistant('[Server unreachable — response saved locally]');
@@ -1107,5 +1209,6 @@
 
 </body>
 </html>
+
 
 
