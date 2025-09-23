@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" >
   <meta name="viewport" content="width=device-width,initial-scale=1" >
-  <title>Rocky Soulmode — Chat Memory (Polished)</title>
+  <title>Rocky Soulmode — Chat Memory (Patched)</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     /* ---------- Theme & layout (kept your polished design, cleaned) ---------- */
@@ -302,9 +302,11 @@
 
 <script>
 /* =========================
-   Main UI + client logic (single consolidated script)
-   Safe DOM updates, robust host detection
-   Enhancements: timestamps, avatars, typing indicator, improved message rendering
+   Patched UI + client logic
+   - Replaced any HEAD health checks with GET
+   - Single consolidated health + autosync block
+   - Removed duplicate interval/tryAutoSync definitions
+   - Defensive parsing for export responses
    ========================= */
 (() => {
   'use strict';
@@ -325,49 +327,58 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Determine API base — prefer explicit window.API, then deployed Render, then same-origin, then localhost
+  // Determine API base — prefer explicit window.API, then explicit API_BASE, then same-origin when local, else Render
   const explicitWindowAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
   const explicitWindowAPIBase = (typeof window.API_BASE === 'string' && window.API_BASE.trim()) ? window.API_BASE.trim() : null;
   const RENDER_DEFAULT = 'https://rocky-soulmode.onrender.com';
   const host = window.location.hostname || '';
   const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
-  const API = explicitWindowAPI || explicitWindowAPIBase || RENDER_DEFAULT || `${window.location.protocol}//${window.location.host}`;
+  let API;
+  if (explicitWindowAPI) {
+    API = explicitWindowAPI;
+  } else if (explicitWindowAPIBase) {
+    API = explicitWindowAPIBase;
+  } else if (isLocal) {
+    API = `${window.location.protocol}//${window.location.host}`;
+  } else {
+    API = RENDER_DEFAULT;
+  }
 
   window.Rocky = window.Rocky || {};
   window.Rocky.API_BASE = API;
 
-    // --- Local storage helpers (single robust implementation) ---
+  // --- Local storage helpers (single robust implementation) ---
+  const LOCAL_PREFIX = 'rocky_local::';
   function localStoreKey(acc){ return LOCAL_PREFIX + (acc||'default'); }
-function getLocal(acc){
-  try {
-    if (!acc) return { memories: {}, threads: {} };
-    const raw = localStorage.getItem(localStoreKey(acc));
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
-    parsed.memories = parsed.memories || {};
-    parsed.threads = parsed.threads || {};
-    return parsed;
-  } catch(e){
-    console.warn('getLocal parse error', e);
-    return { memories: {}, threads: {} };
+  function getLocal(acc){
+    try {
+      if (!acc) return { memories: {}, threads: {} };
+      const raw = localStorage.getItem(localStoreKey(acc));
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
+      parsed.memories = parsed.memories || {};
+      parsed.threads = parsed.threads || {};
+      return parsed;
+    } catch(e){
+      console.warn('getLocal parse error', e);
+      return { memories: {}, threads: {} };
+    }
   }
-}
-function pushLocalMemory(acc,k,v){
-  const p = getLocal(acc);
-  p.memories = p.memories || {};
-  p.memories[k] = { value: v, timestamp: (new Date()).toISOString() };
-  localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-}
-function pushLocalThread(acc,tid,msg){
-  const p = getLocal(acc);
-  p.threads = p.threads || {};
-  p.threads[tid] = p.threads[tid] || [];
-  p.threads[tid].push(msg);
-  localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-}
+  function pushLocalMemory(acc,k,v){
+    const p = getLocal(acc);
+    p.memories = p.memories || {};
+    p.memories[k] = { value: v, timestamp: (new Date()).toISOString() };
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
+  function pushLocalThread(acc,tid,msg){
+    const p = getLocal(acc);
+    p.threads = p.threads || {};
+    p.threads[tid] = p.threads[tid] || [];
+    p.threads[tid].push(msg);
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
   window.Rocky.pushLocalMemory = pushLocalMemory;
   window.Rocky.pushLocalThread = pushLocalThread;
-
 
   // fetch helper with better error messages
   async function fetchJSON(url, opts = {}) {
@@ -383,7 +394,6 @@ function pushLocalThread(acc,tid,msg){
   window.Rocky.fetchJSON = fetchJSON;
 
   // ---- state ----
-  const LOCAL_PREFIX = 'rocky_local::';
   let account = localStorage.getItem('rocky_account') || '';
   let serverAlive = false;
   let memEntries = [];
@@ -416,128 +426,62 @@ function pushLocalThread(acc,tid,msg){
   }
   showLoginUI();
 
-  // Improved checkServer: tries /test/selfcheck, /health, then / — uses GET (not HEAD)
-  // ---- Consolidated health check + safe auto-sync (drop-in replacement) ----
-let _isSyncing = false;
+  // ---- Consolidated health check + safe auto-sync (drop-in) ----
+  let _isSyncing = false;
+  async function checkServer() {
+    try {
+      let ok = false;
+      const healthUrls = [
+        `${API}/test/selfcheck`,
+        `${API}/health`,
+        `${API}/`
+      ];
 
-async function checkServer() {
-  try {
-    let ok = false;
-    const healthUrls = [
-      `${API}/test/selfcheck`,
-      `${API}/health`,
-      `${API}/`
-    ];
-
-    for (const url of healthUrls) {
-      try {
-        // Use GET — some hosts reject HEAD; no-cache to force fresh result
-        const r = await fetch(url, { method: 'GET', cache: 'no-store' });
-        // treat 2xx-4xx <500 as "server reachable" — we only care that host responded
-        if (r && r.status >= 200 && r.status < 500) { ok = true; break; }
-      } catch (err) {
-        // try next health URL
-      }
-    }
-    setServerStatus(ok);
-  } catch (e) {
-    console.warn('checkServer unexpected error', e);
-    setServerStatus(false);
-  }
-
-  // attempt auto-sync only when server reported alive and account exists
-  try {
-    const autoEl = document.getElementById('autoSync');
-    const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
-    if (serverAlive && account && (autoValue === "true")) {
-      // guard against overlapping syncs
-      if (!_isSyncing) {
+      for (const url of healthUrls) {
         try {
-          _isSyncing = true;
-          await tryAutoSync();
-        } catch (syncErr) {
-          console.warn('tryAutoSync failed', syncErr);
-        } finally {
-          _isSyncing = false;
+          // Use GET instead of HEAD — some hosts reject HEAD and return 405
+          const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+          if (r && r.status >= 200 && r.status < 500) { ok = true; break; }
+        } catch (err) {
+          // try next
         }
-      } else {
-        // already syncing — skip
       }
-    }
-  } catch (e) {
-    console.warn('checkServer autoSync fail', e);
-  }
-}
-
-// clear previous interval if present (safe to call multiple times)
-if (window._rocky_health_interval) {
-  clearInterval(window._rocky_health_interval);
-  window._rocky_health_interval = null;
-}
-window._rocky_health_interval = setInterval(checkServer, 3500);
-// run initial check quickly
-setTimeout(checkServer, 300);
-
-/**
- * Safe tryAutoSync: posts local data if present.
- * - Uses getLocal(account) which must exist in your script.
- * - Clears only the account-local key on success.
- */
-async function tryAutoSync(force = false) {
-  if (!account) {
-    // allow a console override for debugging
-    if (window._rocky_account_override) {
-      account = window._rocky_account_override;
-      localStorage.setItem('rocky_account', account);
-      showLoginUI();
-    } else return;
-  }
-
-  const local = getLocal(account) || { memories: {}, threads: {} };
-  const hasMem = local.memories && Object.keys(local.memories).length;
-  const hasThreads = local.threads && Object.keys(local.threads).length;
-  const has = (hasMem || hasThreads);
-
-  if (!has && !force) return;
-
-  try {
-    const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(local)
-    });
-
-    if (!res.ok) {
-      // log server message for debugging
-      const txt = await res.text().catch(() => '');
-      console.warn('sync_local returned', res.status, txt);
-      return;
+      setServerStatus(ok);
+    } catch (e) {
+      console.warn('checkServer unexpected error', e);
+      setServerStatus(false);
     }
 
-    // success: remove only the local store for this account
-    try { localStorage.removeItem(localStoreKey(account)); } catch(e){ console.warn('remove local cache failed', e); }
-    appendAssistant('Local data synced to server');
-    try { await loadMemories(); } catch (e) { console.warn('loadMemories after sync failed', e); }
-
-  } catch (e) {
-    console.warn('tryAutoSync network/error', e);
+    // attempt auto-sync only when server reported alive and account exists
+    try {
+      const autoEl = document.getElementById('autoSync');
+      const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
+      if (serverAlive && account && (autoValue === "true")) {
+        if (!_isSyncing) {
+          try {
+            _isSyncing = true;
+            await tryAutoSync();
+          } catch (syncErr) {
+            console.warn('tryAutoSync failed', syncErr);
+          } finally {
+            _isSyncing = false;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('checkServer autoSync fail', e);
+    }
   }
-}
 
-
-  // make interval controllable / stoppable for debugging
-  if (window._rocky_health_interval) {
-    clearInterval(window._rocky_health_interval);
-    window._rocky_health_interval = null;
-  }
+  if (window._rocky_health_interval) { clearInterval(window._rocky_health_interval); window._rocky_health_interval = null; }
   window._rocky_health_interval = setInterval(checkServer, 3500);
-  // run initial check once
   setTimeout(checkServer, 300);
 
-  // Safe tryAutoSync
+  /**
+   * Safe tryAutoSync: posts local data if present.
+   */
   async function tryAutoSync(force = false) {
     if (!account) {
-      // if we have a console override, bind it
       if (window._rocky_account_override) {
         account = window._rocky_account_override;
         localStorage.setItem('rocky_account', account);
@@ -551,21 +495,26 @@ async function tryAutoSync(force = false) {
     const has = (hasMem || hasThreads);
 
     if (!has && !force) return;
+
     try {
       const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(local)
       });
-      if (res.ok) {
-        localStorage.removeItem(localStoreKey(account));
-        appendAssistant('Local data synced to server');
-        await loadMemories();
-      } else {
-        console.warn('sync failed', res.status, await res.text().catch(()=>'')); // better debug
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.warn('sync_local returned', res.status, txt);
+        return;
       }
+
+      try { localStorage.removeItem(localStoreKey(account)); } catch(e){ console.warn('remove local cache failed', e); }
+      appendAssistant('Local data synced to server');
+      try { await loadMemories(); } catch (e) { console.warn('loadMemories after sync failed', e); }
+
     } catch (e) {
-      console.warn('sync failed', e);
+      console.warn('tryAutoSync network/error', e);
     }
   }
 
@@ -656,7 +605,6 @@ async function tryAutoSync(force = false) {
     }
   }
 
- 
   // Memory CRUD & UI
   async function loadMemories(q = null) {
     if (!account) return;
@@ -669,8 +617,10 @@ async function tryAutoSync(force = false) {
         const mems = (data && data.memories) || [];
         memEntries = mems.map(m => ({ key: m.key || m._id, value: m.value, raw: m }));
       } else if (serverAlive) {
-        const j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
-        const mems = (j && j.memories) || {};
+        // Defensive: fetch export, guard against non-object responses
+        let j = null;
+        try { j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`); } catch (err) { console.warn('export fetch failed', err); j = null; }
+        const mems = (j && typeof j === 'object' && j.memories) ? j.memories : {};
         memEntries = Object.entries(mems).map(([k, v]) => ({
           key: k.split('::').pop(),
           value: (v && v.value !== undefined) ? v.value : v,
@@ -794,7 +744,6 @@ async function tryAutoSync(force = false) {
       if (!selected.length) return alert('No memories selected');
       if (!confirm(`Delete ${selected.length} memories?`)) return;
       for (const key of selected) {
-        // eslint-disable-next-line no-await-in-loop
         await forgetMem(key);
       }
       appendAssistant(`🗑 Deleted ${selected.length} memories`);
@@ -804,34 +753,7 @@ async function tryAutoSync(force = false) {
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
 
-  // Sync local -> server
-    async function tryAutoSync(force = false) {
-    if (!account) return; // nothing to sync
-
-    const local = getLocal(account) || { memories: {}, threads: {} };
-    const hasMem = local.memories && Object.keys(local.memories).length;
-    const hasThreads = local.threads && Object.keys(local.threads).length;
-    const has = (hasMem || hasThreads);
-
-    if (!has && !force) return;
-    try {
-      const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(local)
-      });
-      if (res.ok) {
-        localStorage.removeItem(localStoreKey(account));
-        appendAssistant('Local data synced to server');
-        await loadMemories();
-      } else {
-        console.warn('sync failed', res.status);
-      }
-    } catch (e) {
-      console.warn('sync failed', e);
-    }
-  }
-
+  // Sync local -> server (syncBtn wiring below uses this)
   if ($('syncBtn')) $('syncBtn').addEventListener('click', () => tryAutoSync(true));
 
   // Search
@@ -849,7 +771,7 @@ async function tryAutoSync(force = false) {
   }
 
   // Export
-    async function triggerExport() {
+  async function triggerExport() {
     if (!account) return alert('Login first');
     try {
       const data = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
@@ -887,7 +809,7 @@ async function tryAutoSync(force = false) {
       pushLocalThread(account, 'session', { role: 'user', content: text, timestamp: nowISO() });
 
       try {
-                const use_llm = !!($('useLLM') && $('useLLM').checked);
+        const use_llm = !!($('useLLM') && $('useLLM').checked);
         showTyping(true);
 
         // POST to agent; handle both JSON and text responses safely
@@ -904,7 +826,6 @@ async function tryAutoSync(force = false) {
           if (ct.includes('application/json')) {
             j = await res.json();
           } else {
-            // fallback to plain text responses (wrap into reply)
             const txt = await res.text().catch(() => '');
             j = { reply: txt || '[no reply]' };
           }
@@ -1163,7 +1084,7 @@ async function tryAutoSync(force = false) {
       }
     });
   }
-  
+
   // bulk add handler
   if ($('bulkAddBtn')) {
     $('bulkAddBtn').addEventListener('click', async () => {
@@ -1185,7 +1106,6 @@ async function tryAutoSync(force = false) {
       for (const [k, v] of mems) {
         try {
           if (serverAlive) {
-            // eslint-disable-next-line no-await-in-loop
             await fetchJSON(`${API}/remember`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1210,7 +1130,7 @@ async function tryAutoSync(force = false) {
     setTimeout(() => { loadMemories(); }, 200);
   }
 
-    // ----- Navigation (Chat / Memories / Settings) -----
+  // ----- Navigation (Chat / Memories / Settings) -----
   (function wireNavigation() {
    function showPanel(name){
     const chat = $('chatPanel');
