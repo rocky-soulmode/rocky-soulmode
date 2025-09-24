@@ -226,7 +226,7 @@
         <div class="server-status small" id="srv" aria-live="polite">Server: unknown</div>
       </div>
        <div class="header-actions">
-        <input id="email" type="email" placeholder="you@domain.com" aria-label="Account email" >
+        <input id="email" name="email" type="email" placeholder="you@domain.com" aria-label="Account email">
         <button class="btn btn-ghost" id="login">Login</button>
         <button class="btn btn-ghost" id="logout" style="display:none">Logout</button>
       </div>
@@ -243,7 +243,7 @@
           <div>
             <label class="small">
              <span>LLM</span>
-             <input type="checkbox" id="useLLM" style="margin-left:8px">
+             <input type="checkbox" id="useLLM" name="useLLM" style="margin-left:8px">
             </label>
           </div>
         </div>
@@ -270,16 +270,16 @@
           </div>
 
           <div style="margin-top:10px" class="searchRow">
-            <input id="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories" >
+            <input id="searchQ" name="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories">
             <button class="btn btn-ghost" id="searchBtn">Search</button>
           </div>
 
           <div style="margin-top:10px">
             <div style="display:flex;gap:8px">
-              <input id="addKey" type="text" placeholder="key" aria-label="memory key" >
+              <input id="addKey" name="addKey" type="text" placeholder="key" aria-label="memory key">
               <button class="btn btn-primary" id="addQuick">Save</button>
             </div>
-            <textarea id="addVal" placeholder="value (multi-line)" style="margin-top:8px" aria-label="memory value"></textarea>
+            <textarea id="addVal" name="addVal" placeholder="value (multi-line)" style="margin-top:8px" aria-label="memory value"></textarea>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button class="btn btn-ghost" id="syncBtn">Sync local → server</button>
               <button class="btn btn-ghost" id="exportBtn">Export</button>
@@ -299,7 +299,7 @@
 
       <!-- Small area for bulk add -->
       <div style="flex-basis:100%; margin-top:8px; display:flex; gap:8px; align-items:flex-start;">
-        <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="flex:1; min-height:78px"></textarea>
+        <textarea id="bulkMemories" name="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="flex:1; min-height:78px"></textarea>
         <div style="display:flex;flex-direction:column;gap:8px">
           <button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
         </div>
@@ -334,7 +334,7 @@
 
             <div style="margin-top:8px" class="row">
               <label for="sigInput" class="small">Signature</label>
-              <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1">
+              <input id="sigInput" name="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1">
             </div>
 
             <div style="margin-top:12px">
@@ -1276,6 +1276,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
