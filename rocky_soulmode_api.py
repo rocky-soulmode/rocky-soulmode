@@ -1348,20 +1348,11 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] in ("test", "--test"):
         unittest.main(argv=[sys.argv[0]])
     elif HAS_FASTAPI:
-        allow_server = os.getenv("ROCKY_ALLOW_SERVER", "0")
-        if allow_server == "1":
-            try:
-                import uvicorn  # type: ignore
-                port = int(os.getenv("PORT", "8000"))
-                uvicorn.run("rocky_soulmode_api:app", host="0.0.0.0", port=port)
-            except Exception as e:
-                logger.error(f"Failed to start uvicorn: {e}")
-        else:
-            run_demo()
+        try:
+            import uvicorn  # type: ignore
+            port = int(os.getenv("PORT", "8000"))  # Render auto injects this
+            uvicorn.run("rocky_soulmode_api:app", host="0.0.0.0", port=port)
+        except Exception as e:
+            logger.error(f"Failed to start uvicorn: {e}")
     else:
         run_demo()
-
-
-
-
-
