@@ -162,8 +162,10 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
           <div class="small">Account: <strong id="curAccount">(not logged)</strong></div>
           <div>
-            <label class="small" for="useLLM">LLM</label>
-            <input type="checkbox" id="useLLM" style="margin-left:8px" aria-label="Use LLM">
+            <label class="small">
+             <span>LLM</span>
+             <input type="checkbox" id="useLLM" style="margin-left:8px">
+            </label>
           </div>
         </div>
 
@@ -257,15 +259,17 @@
             </div>
 
             <div style="margin-top:12px">
-              <label class="small" for="personalitySel">Personality Mode</label>
+             <label class="small">
+              <span>Personality Mode</span>
               <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
                 <option value="default">🌐 Default</option>
                 <option value="highest">⚡ Highest</option>
                 <option value="immortal">♾️ Immortal</option>
                 <option value="ghost">👻 Ghost</option>
               </select>
+             </label>
+          
             </div>
-
             <div style="margin-top:12px" class="row">
               <label class="small">Quick Toggles</label>
               <div style="display:flex; gap:8px;">
@@ -1179,3 +1183,4 @@
 
 </body>
 </html>
+
