@@ -121,18 +121,84 @@
 </head>
 <body>
 <script>
-// Remove any label[for] that points to a missing element.
-// This quiets the "Incorrect use of <label for=...>" issue and keeps labels that are valid.
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('label[for]').forEach(label => {
-    const id = label.getAttribute('for');
-    if (!id || !document.getElementById(id)) {
-      console.warn('Removed invalid label[for] ->', id, label);
-      label.removeAttribute('for');
+/**
+ * Robust removal of invalid label[for] attributes:
+ * - Cleans existing labels on load
+ * - Observes DOM for dynamically added labels
+ * - Uses label.control when available (safer for shadow DOM / components)
+ * - Waits briefly before removing to avoid race conditions
+ */
+(function() {
+  'use strict';
+
+  // Check whether a label actually has an associated control on the page
+  function hasAssociatedControl(label) {
+    try {
+      // Prefer the DOM API if available (works for many cases, incl. some shadow hosts)
+      if (label.control) return true;
+    } catch (e) { /* ignore */ }
+
+    const id = label.getAttribute && label.getAttribute('for');
+    if (!id) return false;
+    return !!document.getElementById(id);
+  }
+
+  function cleanLabel(label, delay = 800) {
+    const id = label.getAttribute && label.getAttribute('for');
+    if (!id) return;
+    // Give a short grace period for dynamically-created targets
+    setTimeout(() => {
+      if (!hasAssociatedControl(label)) {
+        console.warn('Removing invalid label[for] ->', id, label);
+        label.removeAttribute('for');
+      }
+    }, delay);
+  }
+
+  function scanAndClean(root = document) {
+    root.querySelectorAll && root.querySelectorAll('label[for]').forEach(l => cleanLabel(l, 800));
+  }
+
+  // Run initial scan ASAP
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => scanAndClean());
+  } else {
+    scanAndClean();
+  }
+
+  // Observe for labels added later (3rd-party scripts, injected DOM, etc.)
+  const mo = new MutationObserver(mutations => {
+    for (const m of mutations) {
+      if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+        m.addedNodes.forEach(node => {
+          if (!(node instanceof Element)) return;
+          if (node.matches && node.matches('label[for]')) cleanLabel(node);
+          // Also handle any labels nested inside the added subtree
+          node.querySelectorAll && node.querySelectorAll('label[for]').forEach(l => cleanLabel(l));
+        });
+      } else if (m.type === 'attributes' && m.target && m.target.matches && m.target.matches('label[for]')) {
+        // attribute changes on existing labels (for= changed)
+        cleanLabel(m.target);
+      }
     }
   });
-});
+
+  // Observe subtree, added nodes and changes to the 'for' attribute
+  mo.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['for']
+  });
+
+  // Stop observing after a minute to avoid long-running overhead (tunable)
+  setTimeout(() => {
+    try { mo.disconnect(); } catch(e) {}
+  }, 60000);
+
+})();
 </script>
+
 
 <!-- Keep essential safe hidden inputs (used by JS defaults) -->
 <input type="hidden" id="pageSize" value="8">
@@ -1196,6 +1262,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+
 
 
 
