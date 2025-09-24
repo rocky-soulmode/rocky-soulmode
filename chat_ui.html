@@ -1213,32 +1213,32 @@ console.log("✅ Rocky API base locked to", API);
     const navSettings = $('navSettings');
 
     if(chat) chat.classList.toggle('hidden', name !== 'chat');
-    if(mem)  mem.classList.toggle('hidden', name !== 'memories');
+    if(mem)  mem.classList.toggle('hidden', name !== 'memory');
     if(set)  set.classList.toggle('hidden', name !== 'settings');
 
     if(navChat)    navChat.classList.toggle('active', name === 'chat');
-    if(navMemory)  navMemory.classList.toggle('active', name === 'memories');
+    if(navMemory)  navMemory.classList.toggle('active', name === 'memory');
     if(navSettings)navSettings.classList.toggle('active', name === 'settings');
 
     if(navChat)    navChat.setAttribute('aria-pressed', name === 'chat');
-    if(navMemory)  navMemory.setAttribute('aria-pressed', name === 'memories');
+    if(navMemory)  navMemory.setAttribute('aria-pressed', name === 'memory');
     if(navSettings)navSettings.setAttribute('aria-pressed', name === 'settings');
 
     // If opening memories, ensure data is fresh
-    if (name === 'memories') {
+    if (name === 'memory') {
         try { loadMemories(); } catch(e){ console.warn('loadMemories error', e); }
     }
   }
 
   const navChatBtn = $('navChat'); if (navChatBtn) navChatBtn.addEventListener('click', () => showPanel('chat'));
-  const navMemBtn  = $('navMemory'); if (navMemBtn)  navMemBtn.addEventListener('click', () => showPanel('memories'));
+  const navMemBtn  = $('navMemory'); if (navMemBtn)  navMemBtn.addEventListener('click', () => showPanel('memory'));
   const navSetBtn  = $('navSettings'); if (navSetBtn) navSetBtn.addEventListener('click', () => showPanel('settings'));
 
-  // keyboard shortcuts (1 = Chat, 2 = Memories, 3 = Settings)
+  // keyboard shortcuts (1 = Chat, 2 = Memory, 3 = Settings)
   window.addEventListener('keydown', (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === '1') showPanel('chat');
-      if (e.key === '2') showPanel('memories');
+      if (e.key === '2') showPanel('memory');
       if (e.key === '3') showPanel('settings');
   });
 
@@ -1276,6 +1276,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
