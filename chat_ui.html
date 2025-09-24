@@ -1202,9 +1202,9 @@ console.log("✅ Rocky API base locked to", API);
     setTimeout(() => { loadMemories(); }, 200);
   }
 
-  // ----- Navigation (Chat / Memories / Settings) -----
-  (function wireNavigation() {
-   function showPanel(name){
+ // ----- Navigation (Chat / Memory / Settings) -----
+(function wireNavigation() {
+  function showPanel(name){
     const chat = $('chatPanel');
     const mem  = $('memoryPanel');
     const set  = $('settingsPanel');
@@ -1212,39 +1212,40 @@ console.log("✅ Rocky API base locked to", API);
     const navMemory = $('navMemory');
     const navSettings = $('navSettings');
 
-    if(chat) chat.classList.toggle('hidden', name !== 'chat');
-    if(mem)  mem.classList.toggle('hidden', name !== 'memory');
-    if(set)  set.classList.toggle('hidden', name !== 'settings');
+    if(chat) chat.classList.toggle('hidden', name !== 'chatPanel');
+    if(mem)  mem.classList.toggle('hidden', name !== 'memoryPanel');
+    if(set)  set.classList.toggle('hidden', name !== 'settingsPanel');
 
-    if(navChat)    navChat.classList.toggle('active', name === 'chat');
-    if(navMemory)  navMemory.classList.toggle('active', name === 'memory');
-    if(navSettings)navSettings.classList.toggle('active', name === 'settings');
+    if(navChat)    navChat.classList.toggle('active', name === 'chatPanel');
+    if(navMemory)  navMemory.classList.toggle('active', name === 'memoryPanel');
+    if(navSettings)navSettings.classList.toggle('active', name === 'settingsPanel');
 
-    if(navChat)    navChat.setAttribute('aria-pressed', name === 'chat');
-    if(navMemory)  navMemory.setAttribute('aria-pressed', name === 'memory');
-    if(navSettings)navSettings.setAttribute('aria-pressed', name === 'settings');
+    if(navChat)    navChat.setAttribute('aria-pressed', name === 'chatPanel');
+    if(navMemory)  navMemory.setAttribute('aria-pressed', name === 'memoryPanel');
+    if(navSettings)navSettings.setAttribute('aria-pressed', name === 'settingsPanel');
 
-    // If opening memories, ensure data is fresh
-    if (name === 'memory') {
-        try { loadMemories(); } catch(e){ console.warn('loadMemories error', e); }
+    // load memories when memory panel opens
+    if (name === 'memoryPanel') {
+      try { loadMemories(); } catch(e){ console.warn('loadMemories error', e); }
     }
   }
 
-  const navChatBtn = $('navChat'); if (navChatBtn) navChatBtn.addEventListener('click', () => showPanel('chat'));
-  const navMemBtn  = $('navMemory'); if (navMemBtn)  navMemBtn.addEventListener('click', () => showPanel('memory'));
-  const navSetBtn  = $('navSettings'); if (navSetBtn) navSetBtn.addEventListener('click', () => showPanel('settings'));
+  // sidebar buttons
+  const navChatBtn = $('navChat'); if (navChatBtn) navChatBtn.addEventListener('click', () => showPanel('chatPanel'));
+  const navMemBtn  = $('navMemory'); if (navMemBtn)  navMemBtn.addEventListener('click', () => showPanel('memoryPanel'));
+  const navSetBtn  = $('navSettings'); if (navSetBtn) navSetBtn.addEventListener('click', () => showPanel('settingsPanel'));
 
   // keyboard shortcuts (1 = Chat, 2 = Memory, 3 = Settings)
   window.addEventListener('keydown', (e) => {
-      if (e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.key === '1') showPanel('chat');
-      if (e.key === '2') showPanel('memory');
-      if (e.key === '3') showPanel('settings');
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === '1') showPanel('chatPanel');
+    if (e.key === '2') showPanel('memoryPanel');
+    if (e.key === '3') showPanel('settingsPanel');
   });
 
   // default view
-  showPanel('chat');
-  })();
+  showPanel('chatPanel');
+})();
 
 })();
 </script>
@@ -1276,6 +1277,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
