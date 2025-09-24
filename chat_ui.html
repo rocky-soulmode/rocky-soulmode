@@ -678,10 +678,16 @@ console.log("✅ Rocky API base locked to", API);
   }
 
   // Memory CRUD & UI
-  async function loadMemories(q = null) {
-    if (!account) return;
+ async function loadMemories(q = null) {
     const memContainer = $('memList');
     if (memContainer) memContainer.textContent = 'Loading...';
+
+    if (!account) {
+      // show helpful hint when not logged in
+      if (memContainer) memContainer.innerHTML = '<div class="small">Please login (top-right) to load server memories. You can also add memories locally while offline.</div>';
+      if ($('memCount')) $('memCount').textContent = '0';
+      return;
+    }
 
     try {
       if (serverAlive && q) {
@@ -689,7 +695,6 @@ console.log("✅ Rocky API base locked to", API);
         const mems = (data && data.memories) || [];
         memEntries = mems.map(m => ({ key: m.key || m._id, value: m.value, raw: m }));
       } else if (serverAlive) {
-        // Defensive: fetch export, guard against non-object responses
         let j = null;
         try { j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`); } catch (err) { console.warn('export fetch failed', err); j = null; }
         const mems = (j && typeof j === 'object' && j.memories) ? j.memories : {};
@@ -753,6 +758,7 @@ console.log("✅ Rocky API base locked to", API);
     const deleteSelectedBtn = document.createElement('button');
     deleteSelectedBtn.className = 'btn btn-ghost';
     deleteSelectedBtn.id = 'deleteSelected';
+    deleteSelectedBtn.type = 'button';
     deleteSelectedBtn.textContent = '🗑 Delete Selected';
     bulkBar.appendChild(deleteSelectedBtn);
 
@@ -787,6 +793,7 @@ console.log("✅ Rocky API base locked to", API);
       const view = document.createElement('button');
       view.className = 'btn btn-ghost';
       view.textContent = 'View';
+      view.type = 'button';
       view.addEventListener('click', () => openViewer(it));
 
       const forget = document.createElement('button');
@@ -794,6 +801,7 @@ console.log("✅ Rocky API base locked to", API);
       forget.style.background = 'var(--danger)';
       forget.style.color = '#fff';
       forget.textContent = 'Forget';
+      forget.type = 'button';
       forget.addEventListener('click', () => forgetMem(it.key));
 
       controls.appendChild(view);
@@ -1273,6 +1281,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
