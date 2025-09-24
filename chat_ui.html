@@ -1202,105 +1202,7 @@ console.log("✅ Rocky API base locked to", API);
     setTimeout(() => { loadMemories(); }, 200);
   }
 
- <script>
-/* ====== Robust panel navigation (drop-in replacement) ====== */
-(function wireNavigationFixed() {
-  const $ = id => document.getElementById(id);
-
-  // mapping tolerated names -> real panel IDs
-  const PANEL_MAP = {
-    chat: 'chatPanel',
-    chatpanel: 'chatPanel',
-    memory: 'memoryPanel',
-    memories: 'memoryPanel',
-    memorypanel: 'memoryPanel',
-    settings: 'settingsPanel',
-    settingspanel: 'settingsPanel'
-  };
-
-  function norm(name) {
-    if (!name) return 'chat';
-    name = String(name).toLowerCase().trim();
-    // accept either "chat", "chatPanel", "memory", "memories", "settings", etc.
-    if (name.endsWith('panel')) name = name.replace(/panel$/,'');
-    if (name === 'memories') name = 'memory';
-    return name;
-  }
-
-  function showPanel(nameRaw) {
-  const PANEL_MAP = {
-    chat: 'chatPanel',
-    memory: 'memoryPanel',
-    memories: 'memoryPanel', // allow both
-    settings: 'settingsPanel'
-  };
-  const norm = (n) => (n || '').toLowerCase().trim();
-  const name = norm(nameRaw);
-  const targetId = PANEL_MAP[name] || 'chatPanel';
-
-  // hide/show panels consistently
-  ['chatPanel','memoryPanel','settingsPanel'].forEach(pid => {
-    const el = document.getElementById(pid);
-    if (!el) return;
-    el.classList.toggle('hidden', pid !== targetId);
-  });
-
-  // update nav button states
-  const navInfo = [
-    {btnId:'navChat', panelId:'chatPanel'},
-    {btnId:'navMemory', panelId:'memoryPanel'},
-    {btnId:'navSettings', panelId:'settingsPanel'}
-  ];
-  navInfo.forEach(n => {
-    const b = document.getElementById(n.btnId);
-    if (!b) return;
-    const active = (n.panelId === targetId);
-    b.classList.toggle('active', active);
-    b.setAttribute('aria-pressed', String(active));
-  });
-
-  // persist last open panel
-  try { localStorage.setItem('rocky_last_panel', targetId); } catch(e){}
-
-  // refresh memories if needed
-  if (targetId === 'memoryPanel') {
-    try { if (typeof loadMemories === 'function') loadMemories(); } catch (e) { console.warn('loadMemories error', e); }
-  }
-}
-
-// wire clicks
-[
-  ['navChat','chat'],
-  ['navMemory','memory'],
-  ['navSettings','settings']
-].forEach(([id, name]) => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('click', () => showPanel(name));
-});
-
-// default view restore (last panel or chat)
-const last = localStorage.getItem('rocky_last_panel') || 'chatPanel';
-showPanel(last);
-
-
-  // keyboard shortcuts
-  window.addEventListener('keydown', (e) => {
-    if (e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key === '1') showPanel('chat');
-    if (e.key === '2') showPanel('memory');
-    if (e.key === '3') showPanel('settings');
-  });
-
-  // default / restore last
-  const last = (localStorage.getItem('rocky_last_panel') || 'chatPanel');
-  showPanel(last);
-
-  // small debug export
-  window.Rocky = window.Rocky || {};
-  window.Rocky.showPanel = showPanel;
-})();
-</script>
-
+ 
 <script>
 (function(){
   // self-test hook
@@ -1325,10 +1227,21 @@ showPanel(last);
     }
   }, 500);
 })();
+// wire clicks
+[['navChat','chat'],['navMemory','memory'],['navSettings','settings']].forEach(([id, name]) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', () => showPanel(name));
+});
+
+// restore last view
+showPanel(localStorage.getItem('rocky_last_panel') || 'chat');
+
+  
 </script>
 
 </body>
 </html>
+
 
 
 
