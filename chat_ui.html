@@ -410,25 +410,14 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Determine API base — prefer explicit window.API, then explicit API_BASE, then same-origin when local, else Render
-  const explicitWindowAPI = (typeof window.API === 'string' && window.API.trim()) ? window.API.trim() : null;
-  const explicitWindowAPIBase = (typeof window.API_BASE === 'string' && window.API_BASE.trim()) ? window.API_BASE.trim() : null;
-  const RENDER_DEFAULT = 'https://rocky-soulmode.onrender.com';
-  const host = window.location.hostname || '';
-  const isLocal = host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0';
-  let API;
-  if (explicitWindowAPI) {
-    API = explicitWindowAPI;
-  } else if (explicitWindowAPIBase) {
-    API = explicitWindowAPIBase;
-  } else if (isLocal) {
-    API = `${window.location.protocol}//${window.location.host}`;
-  } else {
-    API = RENDER_DEFAULT;
-  }
+ // 🚀 Hard-set API base directly to your Render backend
+const API = 'https://rocky-soulmode.onrender.com';
 
-  window.Rocky = window.Rocky || {};
-  window.Rocky.API_BASE = API;
+window.Rocky = window.Rocky || {};
+window.Rocky.API_BASE = API;
+
+console.log("✅ Rocky API base locked to", API);
+
 
   // --- Local storage helpers (single robust implementation) ---
   const LOCAL_PREFIX = 'rocky_local::';
@@ -1287,6 +1276,7 @@
 
 </body>
 </html>
+
 
 
 
