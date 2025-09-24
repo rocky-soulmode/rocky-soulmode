@@ -120,6 +120,19 @@
   </style>
 </head>
 <body>
+<script>
+// Remove any label[for] that points to a missing element.
+// This quiets the "Incorrect use of <label for=...>" issue and keeps labels that are valid.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('label[for]').forEach(label => {
+    const id = label.getAttribute('for');
+    if (!id || !document.getElementById(id)) {
+      console.warn('Removed invalid label[for] ->', id, label);
+      label.removeAttribute('for');
+    }
+  });
+});
+</script>
 
 <!-- Keep essential safe hidden inputs (used by JS defaults) -->
 <input type="hidden" id="pageSize" value="8">
@@ -1183,5 +1196,6 @@
 
 </body>
 </html>
+
 
 
