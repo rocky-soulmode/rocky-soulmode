@@ -1259,9 +1259,35 @@
 
 })();
 </script>
+<script>
+(function(){
+  // self-test hook
+  console.log("✅ Rocky self-test script loaded");
+
+  if (!window.Rocky) {
+    window.Rocky = {};
+  }
+
+  window.Rocky.debug = function(){
+    console.log("API →", window.Rocky.API_BASE || "(not set)");
+    console.log("account →", localStorage.getItem("rocky_account") || "(none)");
+    console.log("serverAlive →", typeof serverAlive !== "undefined" ? serverAlive : "(not wired)");
+  };
+
+  // auto run debug on load
+  setTimeout(() => {
+    if (window.Rocky && typeof Rocky.debug === "function") {
+      Rocky.debug();
+    } else {
+      alert("⚠️ Rocky.debug not available — script failed to execute");
+    }
+  }, 500);
+})();
+</script>
 
 </body>
 </html>
+
 
 
 
