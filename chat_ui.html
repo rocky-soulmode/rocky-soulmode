@@ -1205,12 +1205,9 @@ console.log("✅ Rocky API base locked to", API);
  
 <script>
 (function(){
-  // self-test hook
   console.log("✅ Rocky self-test script loaded");
 
-  if (!window.Rocky) {
-    window.Rocky = {};
-  }
+  if (!window.Rocky) window.Rocky = {};
 
   window.Rocky.debug = function(){
     console.log("API →", window.Rocky.API_BASE || "(not set)");
@@ -1218,29 +1215,65 @@ console.log("✅ Rocky API base locked to", API);
     console.log("serverAlive →", typeof serverAlive !== "undefined" ? serverAlive : "(not wired)");
   };
 
-  // auto run debug on load
-  setTimeout(() => {
-    if (window.Rocky && typeof Rocky.debug === "function") {
-      Rocky.debug();
-    } else {
-      alert("⚠️ Rocky.debug not available — script failed to execute");
+  // ---- Panel navigation ----
+  function showPanel(nameRaw) {
+    const PANEL_MAP = {
+      chat: 'chatPanel',
+      chatpanel: 'chatPanel',
+      memory: 'memoryPanel',
+      memories: 'memoryPanel',
+      memorypanel: 'memoryPanel',
+      settings: 'settingsPanel',
+      settingspanel: 'settingsPanel'
+    };
+    const name = (nameRaw || '').toLowerCase().trim();
+    const targetId = PANEL_MAP[name] || 'chatPanel';
+
+    // hide/show panels
+    ['chatPanel','memoryPanel','settingsPanel'].forEach(pid => {
+      const el = document.getElementById(pid);
+      if (el) el.classList.toggle('hidden', pid !== targetId);
+    });
+
+    // nav button states
+    [
+      {btnId:'navChat', panelId:'chatPanel'},
+      {btnId:'navMemory', panelId:'memoryPanel'},
+      {btnId:'navSettings', panelId:'settingsPanel'}
+    ].forEach(n => {
+      const b = document.getElementById(n.btnId);
+      if (b) {
+        const active = (n.panelId === targetId);
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      }
+    });
+
+    try { localStorage.setItem('rocky_last_panel', targetId); } catch(e){}
+    if (targetId === 'memoryPanel') {
+      try { if (typeof loadMemories === 'function') loadMemories(); } catch(e) {}
     }
-  }, 500);
+  }
+  window.showPanel = showPanel;
+
+  // wire clicks
+  [['navChat','chat'],['navMemory','memory'],['navSettings','settings']].forEach(([id, name]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => showPanel(name));
+  });
+
+  // restore last view
+  showPanel(localStorage.getItem('rocky_last_panel') || 'chat');
+
+  // auto-run debug
+  setTimeout(() => Rocky.debug(), 500);
 })();
-// wire clicks
-[['navChat','chat'],['navMemory','memory'],['navSettings','settings']].forEach(([id, name]) => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('click', () => showPanel(name));
-});
-
-// restore last view
-showPanel(localStorage.getItem('rocky_last_panel') || 'chat');
-
-  
 </script>
+
 
 </body>
 </html>
+
 
 
 
