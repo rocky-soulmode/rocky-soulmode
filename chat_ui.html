@@ -1228,49 +1228,60 @@ console.log("✅ Rocky API base locked to", API);
   }
 
   function showPanel(nameRaw) {
-    const name = norm(nameRaw);
-    const targetId = PANEL_MAP[name] || 'chatPanel';
-    // hide/show panels consistently
-    ['chatPanel','memoryPanel','settingsPanel'].forEach(pid => {
-      const el = $(pid);
-      if (!el) return;
-      el.classList.toggle('hidden', pid !== targetId);
-    });
+  const PANEL_MAP = {
+    chat: 'chatPanel',
+    memory: 'memoryPanel',
+    memories: 'memoryPanel', // allow both
+    settings: 'settingsPanel'
+  };
+  const norm = (n) => (n || '').toLowerCase().trim();
+  const name = norm(nameRaw);
+  const targetId = PANEL_MAP[name] || 'chatPanel';
 
-    // update nav button states (navChat, navMemory, navSettings)
-    const navInfo = [
-      {btnId:'navChat', panelId:'chatPanel'},
-      {btnId:'navMemory', panelId:'memoryPanel'},
-      {btnId:'navSettings', panelId:'settingsPanel'}
-    ];
-    navInfo.forEach(n => {
-      const b = $(n.btnId);
-      if (!b) return;
-      const active = (n.panelId === targetId);
-      b.classList.toggle('active', active);
-      b.setAttribute('aria-pressed', String(active));
-    });
-
-    // persist last open panel so a reload restores it
-    try { localStorage.setItem('rocky_last_panel', targetId); } catch(e){}
-
-    // load memories when memory panel opens
-    if (targetId === 'memoryPanel') {
-      try { if (typeof loadMemories === 'function') loadMemories(); } catch (e) { console.warn('loadMemories error', e); }
-    }
-  }
-
-  // wire clicks (tolerant)
-  const btnMap = [
-    ['navChat','chat'],
-    ['navMemory','memory'],
-    ['navSettings','settings']
-  ];
-  btnMap.forEach(([id, name]) => {
-    const el = document.getElementById(id);
+  // hide/show panels consistently
+  ['chatPanel','memoryPanel','settingsPanel'].forEach(pid => {
+    const el = document.getElementById(pid);
     if (!el) return;
-    el.addEventListener('click', () => showPanel(name));
+    el.classList.toggle('hidden', pid !== targetId);
   });
+
+  // update nav button states
+  const navInfo = [
+    {btnId:'navChat', panelId:'chatPanel'},
+    {btnId:'navMemory', panelId:'memoryPanel'},
+    {btnId:'navSettings', panelId:'settingsPanel'}
+  ];
+  navInfo.forEach(n => {
+    const b = document.getElementById(n.btnId);
+    if (!b) return;
+    const active = (n.panelId === targetId);
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+  });
+
+  // persist last open panel
+  try { localStorage.setItem('rocky_last_panel', targetId); } catch(e){}
+
+  // refresh memories if needed
+  if (targetId === 'memoryPanel') {
+    try { if (typeof loadMemories === 'function') loadMemories(); } catch (e) { console.warn('loadMemories error', e); }
+  }
+}
+
+// wire clicks
+[
+  ['navChat','chat'],
+  ['navMemory','memory'],
+  ['navSettings','settings']
+].forEach(([id, name]) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', () => showPanel(name));
+});
+
+// default view restore (last panel or chat)
+const last = localStorage.getItem('rocky_last_panel') || 'chatPanel';
+showPanel(last);
+
 
   // keyboard shortcuts
   window.addEventListener('keydown', (e) => {
@@ -1318,6 +1329,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
