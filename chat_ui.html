@@ -400,6 +400,14 @@
   const nowShort = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
 
+  // Restore email if account already saved
+document.addEventListener('DOMContentLoaded', () => {
+  const savedAcc = localStorage.getItem('rocky_account');
+  if (savedAcc && $('email')) {
+    $('email').value = savedAcc;
+  }
+});
+
   function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -1385,6 +1393,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 </body>
 </html>
+
 
 
 
