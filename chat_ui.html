@@ -698,10 +698,8 @@ console.log("✅ Rocky API base locked to", API);
         const mems = (data && data.memories) || [];
         memEntries = mems.map(m => ({ key: m.key || m._id, value: m.value, raw: m }));
       } else if (serverAlive) {
-        // Defensive: fetch export, guard against non-object responses
-        let j = null;
-        try { j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`); } catch (err) { console.warn('export fetch failed', err); j = null; }
-        const mems = (j && typeof j === 'object' && j.memories) ? j.memories : {};
+        const j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
+        const mems = (j && j.memories) || {};
         memEntries = Object.entries(mems).map(([k, v]) => ({
           key: k.split('::').pop(),
           value: (v && v.value !== undefined) ? v.value : v,
@@ -1339,3 +1337,4 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 </body>
 </html>
+
