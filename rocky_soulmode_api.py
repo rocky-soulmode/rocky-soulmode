@@ -12,6 +12,10 @@ import random
 import traceback
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
+import redis, json
+
+# Redis connection (adjust host/port if needed)
+redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
 # google exceptions + retry (guarded imports)
 try:
@@ -1073,10 +1077,54 @@ if HAS_FASTAPI:
     def api_forget(account: str, key: str):
         ok = forget_data(account, key)
         return {"status": "forgotten" if ok else "not_found"}
+    
+    @app.post("/save/{account}")
+async def save_memory(account: str, payload: dict):
+    try:
+        key = payload.get("key")
+        value = payload.get("value")
+
+        if not key:
+            return {"error": "missing key"}
+
+        # Save to Redis first
+        cache_key = f"mem:{account}"
+        current = json.loads(redis_client.get(cache_key) or "{}")
+        current[key] = value
+        redis_client.setex(cache_key, 3600, json.dumps(current))
+
+        # Firestore (best-effort)
+        try:
+            db.collection("memories").document(f"{account}::{key}").set({"value": value})
+        except Exception as fe:
+            print("⚠️ Firestore write failed:", fe)
+
+        return {"ok": True, "key": key}
+
+    except Exception as e:
+        return {"error": str(e)}
 
     @app.get("/export/{account}")
-    def api_export(account: str):
-        return export_all(account)
+async def export_memories(account: str):
+    try:
+        # 1. Try Redis first
+        cached = redis_client.get(f"mem:{account}")
+        if cached:
+            return {"memories": json.loads(cached)}
+
+        # 2. Fallback to Firestore
+        docs = db.collection("memories").where("account", "==", account).stream()
+        memories = {doc.id: doc.to_dict() for doc in docs}
+
+        # 3. Cache in Redis
+        redis_client.setex(f"mem:{account}", 3600, json.dumps(memories))
+
+        return {"memories": memories}
+
+    except Exception as e:
+        # 4. If Firestore quota exceeded, return safe JSON
+        return {"memories": {}, "error": "Firestore unavailable", "details": str(e)}
+
 
     @app.get("/search")
     def api_search(q: Optional[str] = None, account: Optional[str] = None, limit: int = 50):
@@ -1356,3 +1404,4 @@ if __name__ == '__main__':
             logger.error(f"Failed to start uvicorn: {e}")
     else:
         run_demo()
+
