@@ -1085,7 +1085,7 @@ async def save_memory(account: str, payload: dict):
         value = payload.get("value")
 
         if not key:
-        return {"error": "missing key"}
+            return {"error": "missing key"}
 
         # Save to Redis first
         cache_key = f"mem:{account}"
@@ -1404,6 +1404,7 @@ if __name__ == '__main__':
             logger.error(f"Failed to start uvicorn: {e}")
     else:
         run_demo()
+
 
 
 
