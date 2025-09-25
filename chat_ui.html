@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rocky Soulmode — Chat Memory (Polished)</title>
+  <meta charset="utf-8" >
+  <meta name="viewport" content="width=device-width,initial-scale=1" >
+  <title>Rocky Soulmode — Chat Memory (Patched)</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     /* ---------- Theme & layout (kept your polished design, cleaned) ---------- */
@@ -20,41 +20,48 @@
       --radius: 12px;
       --max-width: 1200px;
       --font: Inter, system-ui, "Segoe UI", Arial, sans-serif;
+      --muted-2: #9aa6b2;
     }
     * { box-sizing: border-box; }
     html,body { height: 100%; margin: 0; font-family: var(--font); background: linear-gradient(180deg,#f3f7fb,#eef6fb); color: #041826; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
     a { color: inherit; text-decoration: none; }
     button { font: inherit; }
 
-    .app { display:flex; min-height:100vh; }
+    .app { display:flex; min-height:100vh; gap:18px; padding:18px; }
 
     /* Sidebar */
     .sidebar {
-      width:92px;
+      width:96px;
       background: linear-gradient(180deg,#fff,#f8fbff);
-      border-right: 1px solid rgba(2,6,23,0.04);
+      border-radius:var(--radius);
       display:flex;
       flex-direction:column;
       align-items:center;
       padding:12px;
       gap:14px;
-      position:relative;
+      position:sticky;
+      top:18px;
+      height:calc(100vh - 36px);
+      box-shadow:var(--shadow);
+      border:1px solid rgba(2,6,23,0.03);
     }
     .logo {
       width:56px; height:56px; border-radius:12px;
       background: linear-gradient(135deg,var(--accent),var(--accent-2));
-      display:flex; align-items:center; justify-content:center; color:#012; font-weight:700; box-shadow:var(--shadow);
+      display:flex; align-items:center; justify-content:center; color:#012; font-weight:700; box-shadow:0 8px 28px rgba(14,165,160,0.12);
+      font-size:18px;
     }
     .navBtn {
       width:56px; height:56px; border-radius:10px; background:transparent; border:0; cursor:pointer;
-      display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:18px;
+      display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:18px; transition:all .18s ease;
     }
+    .navBtn:hover{ transform:translateY(-3px); }
     .navBtn.active { background:var(--glass); color:var(--accent); }
     .bottomArea { margin-top:auto; }
 
     /* Main area */
     .main { flex:1; display:flex; flex-direction:column; }
-    header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid rgba(2,6,23,0.03); background:transparent; }
+    header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-radius:12px; }
     .header-left { display:flex; gap:14px; align-items:center; }
     .title { font-weight:700; font-size:16px; }
     .server-status { font-size:13px; color:var(--muted); }
@@ -70,7 +77,9 @@
     /* Chat */
     .chatCol { flex:1; display:flex; flex-direction:column; height:74vh; min-width: 420px; }
     #msgs { flex:1; overflow:auto; padding:16px; display:flex; flex-direction:column; gap:10px; border-radius:10px; background:linear-gradient(180deg,#fbfeff,#f6fbff); }
-    .msg { max-width:78%; padding:12px; border-radius:10px; line-height:1.4; word-break:break-word; }
+    .msg { max-width:78%; padding:12px; border-radius:12px; line-height:1.4; word-break:break-word; box-shadow:0 4px 12px rgba(2,6,23,0.03); position:relative; transition:transform .12s ease, opacity .12s ease; }
+    .msg .meta{ display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted-2); margin-bottom:6px }
+    .msg .avatar{ width:28px;height:28px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin-right:8px }
     .user { align-self:flex-end; background:linear-gradient(90deg, rgba(14,165,160,0.12), rgba(14,165,160,0.03)); color:#053633; }
     .assistant { align-self:flex-start; background:linear-gradient(90deg, rgba(255,176,32,0.08), rgba(255,176,32,0.02)); color:#4b2f00; }
 
@@ -89,6 +98,13 @@
     .pager { display:flex; gap:8px; align-items:center; justify-content:center; padding-top:8px; }
     .badge { background:#eef6f5; color:#065; padding:6px 10px; border-radius:999px; font-weight:600; }
 
+    /* typing indicator */
+    .typing { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted-2); }
+    .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted-2); opacity:0.6; animation:blink 1s infinite; }
+    .dot:nth-child(2){ animation-delay:0.15s }
+    .dot:nth-child(3){ animation-delay:0.3s }
+    @keyframes blink{0%{opacity:.2;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}100%{opacity:.2;transform:translateY(0)}}
+
     /* modal */
     .modal { position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(2,6,23,0.45); display:none; align-items:center; justify-content:center; z-index:60; }
     .modal.show { display:flex; }
@@ -104,12 +120,91 @@
   </style>
 </head>
 <body>
+<script>
+/**
+ * Robust removal of invalid label[for] attributes:
+ * - Cleans existing labels on load
+ * - Observes DOM for dynamically added labels
+ * - Uses label.control when available (safer for shadow DOM / components)
+ * - Waits briefly before removing to avoid race conditions
+ */
+(function() {
+  'use strict';
+
+  // Check whether a label actually has an associated control on the page
+  function hasAssociatedControl(label) {
+    try {
+      // Prefer the DOM API if available (works for many cases, incl. some shadow hosts)
+      if (label.control) return true;
+    } catch (e) { /* ignore */ }
+
+    const id = label.getAttribute && label.getAttribute('for');
+    if (!id) return false;
+    return !!document.getElementById(id);
+  }
+
+  function cleanLabel(label, delay = 800) {
+    const id = label.getAttribute && label.getAttribute('for');
+    if (!id) return;
+    // Give a short grace period for dynamically-created targets
+    setTimeout(() => {
+      if (!hasAssociatedControl(label)) {
+        console.warn('Removing invalid label[for] ->', id, label);
+        label.removeAttribute('for');
+      }
+    }, delay);
+  }
+
+  function scanAndClean(root = document) {
+    root.querySelectorAll && root.querySelectorAll('label[for]').forEach(l => cleanLabel(l, 800));
+  }
+
+  // Run initial scan ASAP
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => scanAndClean());
+  } else {
+    scanAndClean();
+  }
+
+  // Observe for labels added later (3rd-party scripts, injected DOM, etc.)
+  const mo = new MutationObserver(mutations => {
+    for (const m of mutations) {
+      if (m.type === 'childList' && m.addedNodes && m.addedNodes.length) {
+        m.addedNodes.forEach(node => {
+          if (!(node instanceof Element)) return;
+          if (node.matches && node.matches('label[for]')) cleanLabel(node);
+          // Also handle any labels nested inside the added subtree
+          node.querySelectorAll && node.querySelectorAll('label[for]').forEach(l => cleanLabel(l));
+        });
+      } else if (m.type === 'attributes' && m.target && m.target.matches && m.target.matches('label[for]')) {
+        // attribute changes on existing labels (for= changed)
+        cleanLabel(m.target);
+      }
+    }
+  });
+
+  // Observe subtree, added nodes and changes to the 'for' attribute
+  mo.observe(document.documentElement || document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['for']
+  });
+
+  // Stop observing after a minute to avoid long-running overhead (tunable)
+  setTimeout(() => {
+    try { mo.disconnect(); } catch(e) {}
+  }, 60000);
+
+})();
+</script>
+
 
 <!-- Keep essential safe hidden inputs (used by JS defaults) -->
 <input type="hidden" id="pageSize" value="8">
 <input type="hidden" id="valuePageSize" value="1200">
-<input type="hidden" id="autoSync" checked>
-<input type="hidden" id="showRaw">
+<input type="hidden" id="autoSync" value="true">
+<input type="hidden" id="showRaw" value="false">
 
 <div class="app" role="application" aria-label="Rocky Soulmode Chat Memory App">
   <!-- Sidebar -->
@@ -131,23 +226,25 @@
         <div class="server-status small" id="srv" aria-live="polite">Server: unknown</div>
       </div>
        <div class="header-actions">
-        <input id="email" type="email" placeholder="you@domain.com" aria-label="Account email" />
+        <input id="email" name="email" type="email" placeholder="you@domain.com" aria-label="Account email">
         <button class="btn btn-ghost" id="login">Login</button>
         <button class="btn btn-ghost" id="logout" style="display:none">Logout</button>
-        <!-- Open Settings (modal) removed — settings live in side panel now -->
       </div>
     </header>
 
     <div class="layout" id="mainLayout" role="main">
       <!-- Chat Panel -->
+      <h2 id="chat-heading" class="small" style="display:none">Chat</h2>
       <div id="chatPanel" class="chatCol panel" aria-labelledby="chat-heading">
         <div id="msgs" aria-live="polite" aria-atomic="false"></div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
           <div class="small">Account: <strong id="curAccount">(not logged)</strong></div>
           <div>
-            <label class="small" for="useLLM">LLM</label>
-            <input type="checkbox" id="useLLM" style="margin-left:8px" aria-label="Use LLM"/>
+            <label class="small">
+             <span>LLM</span>
+             <input type="checkbox" id="useLLM" name="useLLM" style="margin-left:8px">
+            </label>
           </div>
         </div>
 
@@ -160,6 +257,7 @@
           </div>
         </div>
       </div>
+
       <!-- Memory Panel -->
       <div id="memoryPanel" class="panel hidden" style="flex:1">
         <div class="panel" style="padding:12px">
@@ -172,16 +270,16 @@
           </div>
 
           <div style="margin-top:10px" class="searchRow">
-            <input id="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories" />
+            <input id="searchQ" name="searchQ" type="text" placeholder="Search memories or messages" aria-label="Search memories">
             <button class="btn btn-ghost" id="searchBtn">Search</button>
           </div>
 
           <div style="margin-top:10px">
             <div style="display:flex;gap:8px">
-              <input id="addKey" type="text" placeholder="key" aria-label="memory key" />
+              <input id="addKey" name="addKey" type="text" placeholder="key" aria-label="memory key">
               <button class="btn btn-primary" id="addQuick">Save</button>
             </div>
-            <textarea id="addVal" placeholder="value (multi-line)" style="margin-top:8px" aria-label="memory value"></textarea>
+            <textarea id="addVal" name="addVal" placeholder="value (multi-line)" style="margin-top:8px" aria-label="memory value"></textarea>
             <div style="display:flex;gap:8px;margin-top:8px">
               <button class="btn btn-ghost" id="syncBtn">Sync local → server</button>
               <button class="btn btn-ghost" id="exportBtn">Export</button>
@@ -198,105 +296,25 @@
           </div>
         </div>
       </div>
-      <textarea id="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="margin-top:8px"></textarea>
-<button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
 
-<script>
-/*
-  Small, safe handler for the "Add Multiple" button placed directly after the button in the DOM.
-  This uses only standard DOM APIs (no $ helper) and attempts to call the app's fetch/persistence
-  helpers if they are available on window.Rocky. If the app helpers are not yet present, this
-  gracefully falls back to localStorage.
-*/
-(function(){
-  const btn = document.getElementById('bulkAddBtn');
-  if (!btn) return;
-  btn.addEventListener('click', async () => {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return alert('Login first');
-    const textEl = document.getElementById('bulkMemories');
-    const text = (textEl && textEl.value || '').trim();
-    if (!text) return;
-
-    let mems = [];
-    try {
-      if (text.trim().startsWith('{')) {
-        const obj = JSON.parse(text);
-        mems = Object.entries(obj);
-      } else {
-        mems = text.split('\n').map(l => l.split(':')).filter(a => a.length >= 2);
-      }
-    } catch (e) {
-      return alert('Invalid format — use JSON or key:value per line');
-    }
-
-    for (const [k, v] of mems) {
-      try {
-        // Prefer app-provided fetchJSON if available
-        if (window.Rocky && typeof window.Rocky.fetchJSON === 'function') {
-          await window.Rocky.fetchJSON(`${window.Rocky.API_BASE || ''}/remember`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
-          });
-        } else {
-          // fallback to fetch; note API constant may not be present — best-effort
-          const API = window.Rocky && window.Rocky.API_BASE ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-          await fetch(`${API}/remember`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
-          });
-        }
-      } catch (err) {
-        // fallback: save locally if server/save fails
-        try {
-          if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-            window.Rocky.pushLocalMemory(account, k.trim(), v.toString().trim());
-          } else {
-            const LOCAL_PREFIX = 'rocky_local::';
-            const raw = localStorage.getItem(LOCAL_PREFIX + account);
-            const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
-            p.memories = p.memories || {};
-            p.memories[k.trim()] = { value: v.toString().trim(), timestamp: (new Date()).toISOString() };
-            localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
-          }
-        } catch (e2) {
-          console.warn('Bulk add local fallback failed', e2);
-        }
-      }
-    }
-
-    if (textEl) textEl.value = '';
-    // Prefer in-app appendAssistant or fallback to alert
-    if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') {
-      window.Rocky.appendAssistant(`✅ Added ${mems.length} memories`);
-    } else {
-      alert(`✅ Added ${mems.length} memories`);
-    }
-
-    // Try to refresh memory list if possible
-    try {
-      if (window.Rocky && typeof window.Rocky.loadMemories === 'function') {
-        await window.Rocky.loadMemories();
-      }
-    } catch (e) { /* ignore */ }
-  });
-})();
-</script>
+      <!-- Small area for bulk add -->
+      <div style="flex-basis:100%; margin-top:8px; display:flex; gap:8px; align-items:flex-start;">
+        <textarea id="bulkMemories" name="bulkMemories" placeholder='Add multiple memories (JSON object or key:value per line)' style="flex:1; min-height:78px"></textarea>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-primary" id="bulkAddBtn">Add Multiple</button>
+        </div>
+      </div>
 
       <!-- Settings Panel -->
       <div id="settingsPanel" class="panel hidden" style="flex:1">
-        <!-- Moved modal contents here so a separate modal is no longer needed -->
         <h3 id="settings-title">⚙️ Settings & Customize ChatGPT</h3>
         <div class="small">Personalize assistant & advanced options (inline)</div>
 
         <div style="display:flex;gap:18px;margin-top:12px">
-          <!-- left: personalization -->
           <div style="flex:1">
             <div style="margin-bottom:8px"><strong>Personality</strong></div>
             <div class="row" style="gap:10px">
-              <label class="small">Tone</label>
+              <label for="toneSel" class="small">Tone</label>
               <select id="toneSel" style="padding:8px;border-radius:8px">
                 <option value="consistent">Consistent</option>
                 <option value="friendly">Friendly</option>
@@ -306,7 +324,7 @@
             </div>
 
             <div style="margin-top:8px" class="row">
-              <label class="small">Style</label>
+              <label for="styleSel" class="small">Style</label>
               <select id="styleSel" style="padding:8px;border-radius:8px">
                 <option value="cofounder-high-energy">Cofounder — High energy</option>
                 <option value="mentor-calm">Mentor — Calm</option>
@@ -315,258 +333,147 @@
             </div>
 
             <div style="margin-top:8px" class="row">
-              <label class="small">Signature</label>
-              <input id="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1"/>
+              <label for="sigInput" class="small">Signature</label>
+              <input id="sigInput" name="sigInput" type="text" value="💎🔥" style="padding:8px;border-radius:8px;flex:1">
             </div>
 
-     <div style="margin-top:12px">
-  <label class="small" for="personalitySel">Personality Mode</label>
-  <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
-    <option value="default">🌐 Default</option>
-    <option value="highest">⚡ Highest</option>
-    <option value="immortal">♾️ Immortal</option>
-    <option value="ghost">👻 Ghost</option>
-  </select>
+            <div style="margin-top:12px">
+             <label class="small">
+              <span>Personality Mode</span>
+              <select id="personalitySel" style="padding:8px;border-radius:8px;flex:1">
+                <option value="default">🌐 Default</option>
+                <option value="highest">⚡ Highest</option>
+                <option value="immortal">♾️ Immortal</option>
+                <option value="ghost">👻 Ghost</option>
+              </select>
+             </label>
+          
+            </div>
+            <div style="margin-top:12px" class="row">
+              <label class="small">Quick Toggles</label>
+              <div style="display:flex; gap:8px;">
+                <label><input type="checkbox" id="highestPers"> Highest</label>
+                <label><input type="checkbox" id="immortalPers"> Immortal</label>
+                <label><input type="checkbox" id="ghostPers"> Ghost</label>
+              </div>
+            </div>
+
+            <div style="margin-top:12px">
+              <button class="btn btn-primary" id="savePers">Save Personality</button>
+              <button class="btn btn-ghost" id="loadPers">Load Personality</button>
+            </div>
+          </div>
+
+          <div style="flex:1">
+            <div style="margin-bottom:8px"><strong>Advanced</strong></div>
+            <div class="small">System prompt & LLM options</div>
+            <div style="margin-top:8px">
+              <textarea id="systemPrompt" rows="6" placeholder="Optional system prompt for LLM" style="width:100%;border-radius:8px;"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <button class="btn btn-ghost" id="savePrompt">Save Prompt</button>
+                <button class="btn btn-ghost" id="clearPrompt">Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
 </div>
 
 <script>
-  // Save toggle state to backend/local
-  async function setPersonalityFlag(flag, value) {
-    if (!window.localStorage) return;
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      if (window.Rocky && typeof window.Rocky.fetchJSON === 'function') {
-        await window.Rocky.fetchJSON(`${window.Rocky.API_BASE || ''}/remember`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ account, key: flag, value })
-        });
-      } else {
-        // fallback pushLocalMemory if available
-        if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-          window.Rocky.pushLocalMemory(account, flag, value);
-        } else {
-          const LOCAL_PREFIX = 'rocky_local::';
-          const raw = localStorage.getItem(LOCAL_PREFIX + account);
-          const p = raw ? JSON.parse(raw) : { memories: {}, threads: {} };
-          p.memories = p.memories || {};
-          p.memories[flag] = { value, timestamp: (new Date()).toISOString() };
-          localStorage.setItem(LOCAL_PREFIX + account, JSON.stringify(p));
-        }
-      }
-    } catch (err) {
-      // fallback to local push
-      if (window.Rocky && typeof window.Rocky.pushLocalMemory === 'function') {
-        window.Rocky.pushLocalMemory(account, flag, value);
-      }
-    }
-  }
-
-  // Ping agent (with optional silent mode)
-  async function pingAgent(msg, silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const API = (window.Rocky && window.Rocky.API_BASE) ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-      const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message })
-  });
-  const j = await res.json();
-  if (j && j.reply) {
-  appendAssistant(`${j.personality?.signature || ''} ${j.reply}`);
-  }
-     }
-
-  // Restore toggle states (backend → local fallback)
-  async function restorePersonalityFlags(silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const API = (window.Rocky && window.Rocky.API_BASE) ? window.Rocky.API_BASE : (window.API || 'http://127.0.0.1:8000');
-      const resHighest = await fetch(`${API}/recall/${encodeURIComponent(account)}/highestPers`);
-      const highest = resHighest.ok ? (await resHighest.json()).value || (await resHighest.json()) : null;
-      const resImmortal = await fetch(`${API}/recall/${encodeURIComponent(account)}/immortalPers`);
-      const immortal = resImmortal.ok ? (await resImmortal.json()).value || (await resImmortal.json()) : null;
-      const ghost = await fetchJSON(`${API}/recall/${encodeURIComponent(account)}/ghostPers`);
-      $('ghostPers').checked = !!(ghost?.value || ghost);
-      if ($('ghostPers').checked) await pingAgent('bro ghost', true);
-
-      if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!(highest?.value || highest);
-      if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!(immortal?.value || immortal);
-    } catch {
-      const local = (function(){
-        try { return JSON.parse(localStorage.getItem('rocky_local::' + (localStorage.getItem('rocky_account')||''))) || {memories:{}}; } catch(e) { return {memories:{}}; }
-      })();
-      if (document.getElementById('highestPers')) document.getElementById('highestPers').checked = !!local.memories?.highestPers;
-      if (document.getElementById('immortalPers')) document.getElementById('immortalPers').checked = !!local.memories?.immortalPers;
-    }
-
-    // auto-ping agent silently so GPT is aligned
-    if (document.getElementById('highestPers') && document.getElementById('highestPers').checked) await pingAgent('bro personality highest', silent);
-    if (document.getElementById('immortalPers') && document.getElementById('immortalPers').checked) await pingAgent('bro personality immortal', silent);
-  }
-
-  // Highest Personality toggle
-  const highestPersEl = document.getElementById('highestPers');
-  if (highestPersEl) {
-    highestPersEl.addEventListener('change', async e => {
-      const account = localStorage.getItem('rocky_account') || '';
-      if (!account) return alert('Login first');
-      const on = e.target.checked;
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
-      else console.log(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
-      await setPersonalityFlag("highestPers", on);
-      await pingAgent(on ? 'bro personality highest' : 'bro personality reset');
-    });
-  }
-
-  // Immortal Personality toggle
-  const immortalPersEl = document.getElementById('immortalPers');
-  if (immortalPersEl) {
-    immortalPersEl.addEventListener('change', async e => {
-      const account = localStorage.getItem('rocky_account') || '';
-      if (!account) return alert('Login first');
-      const on = e.target.checked;
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
-      else console.log(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
-      await setPersonalityFlag("immortalPers", on);
-      await pingAgent(on ? 'bro immortal' : 'bro personality reset');
-    });
-  }
-  
-  // Ghost Personality toggle
-const ghostPersEl = document.getElementById('ghostPers');
-if (ghostPersEl) {
-  ghostPersEl.addEventListener('change', async e => {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return alert('Login first');
-    const on = e.target.checked;
-    if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') {
-      window.Rocky.appendAssistant(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
-    } else {
-      console.log(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
-    }
-    await setPersonalityFlag("ghostPers", on);
-    await pingAgent(on ? 'bro ghost' : 'bro personality reset');
-  });
-}
-    async function pingAgent(msg, silent=false) {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/agent/${encodeURIComponent(account)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
-      });
-      if (!silent) window.Rocky.appendAssistant(`✅ Agent synced: ${msg}`);
-    } catch {
-      if (!silent) window.Rocky.appendAssistant('⚠ Agent sync failed (offline)');
-    }
-  }
-
-  // Personality selector handler
-  const sel = document.getElementById('personalitySel');
-  if (sel) {
-    sel.addEventListener('change', async e => {
-      const val = e.target.value;
-      let cmd = '';
-      if (val === 'highest') cmd = 'bro personality highest';
-      if (val === 'immortal') cmd = 'bro immortal';
-      if (val === 'ghost') cmd = 'bro ghost';
-      if (val === 'default') cmd = 'bro personality reset';
-      if (cmd) {
-        await setPersonalityFlag('activePersonality', val);
-        await pingAgent(cmd);
-        window.Rocky.appendAssistant(`🔄 Personality switched to ${val.toUpperCase()}`);
-      }
-    });
-  }
-
-  // Restore from memory on login
-  async function restorePersonalityDropdown() {
-    const account = localStorage.getItem('rocky_account') || '';
-    if (!account) return;
-    try {
-      const res = await fetch(`${window.Rocky.API_BASE || 'http://127.0.0.1:8000'}/recall/${encodeURIComponent(account)}/activePersonality`);
-      if (res.ok) {
-        const j = await res.json();
-        const mode = j.value || j;
-        if (sel && mode) {
-          sel.value = mode;
-          sel.dispatchEvent(new Event('change')); // auto-apply
-        }
-      }
-    } catch {
-      // fallback to local
-      const local = JSON.parse(localStorage.getItem('rocky_local::' + account) || '{}');
-      if (local.memories && local.memories.activePersonality) {
-        sel.value = local.memories.activePersonality.value || local.memories.activePersonality;
-        sel.dispatchEvent(new Event('change'));
-      }
-    }
-  }
-
-  // call restore after login
-  document.addEventListener('DOMContentLoaded', restorePersonalityDropdown);
-</script>
-
-/* Manual restore via Load Personality button */
-  const loadPersBtn = document.getElementById('loadPers');
-  if (loadPersBtn) {
-    loadPersBtn.addEventListener('click', async () => {
-      await restorePersonalityFlags();
-      if (window.Rocky && typeof window.Rocky.appendAssistant === 'function') window.Rocky.appendAssistant('♻ Personality toggles restored (manual)');
-      else console.log('♻ Personality toggles restored (manual)');
-    });
-  }
-
-  // note: we replaced top-level await(loadMemories) calls with non-await safe calls below
-
-<script>
 /* =========================
-   Production-ready JS (fixed)
-   - grouped into a single IIFE so helpers are defined before use
-   - exported a few helpers via window.Rocky for earlier handlers
-   - removed top-level await calls
+   Patched UI + client logic
+   - Replaced any HEAD health checks with GET
+   - Single consolidated health + autosync block
+   - Removed duplicate interval/tryAutoSync definitions
+   - Defensive parsing for export responses
    ========================= */
-
 (() => {
   'use strict';
 
-  // === Config ===
-  const API = 'http://127.0.0.1:8000'; // change if your API lives elsewhere
+  // ---- utilities ----
+  const $ = id => document.getElementById(id);
+  const nowISO = () => (new Date()).toISOString();
+  const nowShort = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+  const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
+
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+ // 🚀 Hard-set API base directly to your Render backend
+const API = 'http://127.0.0.1:8000';
+
+  window.Rocky = window.Rocky || {};
+window.Rocky.API_BASE = API;
+
+console.log("✅ Rocky API base locked to", API);
+
+
+  // --- Local storage helpers (single robust implementation) ---
   const LOCAL_PREFIX = 'rocky_local::';
+  function localStoreKey(acc){ return LOCAL_PREFIX + (acc||'default'); }
+  function getLocal(acc){
+    try {
+      if (!acc) return { memories: {}, threads: {} };
+      const raw = localStorage.getItem(localStoreKey(acc));
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed || typeof parsed !== 'object') return { memories: {}, threads: {} };
+      parsed.memories = parsed.memories || {};
+      parsed.threads = parsed.threads || {};
+      return parsed;
+    } catch(e){
+      console.warn('getLocal parse error', e);
+      return { memories: {}, threads: {} };
+    }
+  }
+  function pushLocalMemory(acc,k,v){
+    const p = getLocal(acc);
+    p.memories = p.memories || {};
+    p.memories[k] = { value: v, timestamp: (new Date()).toISOString() };
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
+  function pushLocalThread(acc,tid,msg){
+    const p = getLocal(acc);
+    p.threads = p.threads || {};
+    p.threads[tid] = p.threads[tid] || [];
+    p.threads[tid].push(msg);
+    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  }
+  window.Rocky.pushLocalMemory = pushLocalMemory;
+  window.Rocky.pushLocalThread = pushLocalThread;
+
+  // fetch helper with better error messages
+  async function fetchJSON(url, opts = {}) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`${res.status} ${res.statusText}${text ? ' - ' + text : ''}`);
+    }
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('application/json')) return await res.json();
+    return await res.text();
+  }
+  window.Rocky.fetchJSON = fetchJSON;
+
+  // ---- state ----
   let account = localStorage.getItem('rocky_account') || '';
   let serverAlive = false;
   let memEntries = [];
   let currentPage = 1;
   let pageSize = parseInt(document.getElementById('pageSize').value || '8', 10);
-  let valuePageSize = parseInt(document.getElementById('valuePageSize').value || '1200', 10);
-  let modalChunks = [], modalIndex = 0;
-  let systemPromptSaved = '';
+  let typingTimer = null;
 
-  // expose API base for other scripts
-  window.Rocky = window.Rocky || {};
-  window.Rocky.API_BASE = API;
-
-  // === Short helpers ===
-  const $ = id => document.getElementById(id);
-  const esc = s => s == null ? '' : String(s);
-  const nowISO = () => (new Date()).toISOString();
-  const safeParseJSON = (s, fallback = {}) => { try { return JSON.parse(s); } catch { return fallback; } };
-
-  function chunkString(s, n) {
-    if (!s) return [];
-    const out = [];
-    for (let i = 0; i < s.length; i += n) out.push(s.slice(i, i + n));
-    return out;
-  }
-
-  // === UI helpers ===
+  // UI helpers
   function setServerStatus(ok) {
     serverAlive = !!ok;
     const srv = $('srv');
@@ -577,124 +484,212 @@ if (ghostPersEl) {
   setServerStatus(false);
 
   function showLoginUI() {
-    if (account) {
-      if ($('email')) $('email').style.display = 'none';
-      if ($('login')) $('login').style.display = 'none';
-      if ($('logout')) $('logout').style.display = 'inline-block';
-      if ($('curAccount')) $('curAccount').textContent = account;
-    } else {
-      if ($('email')) $('email').style.display = 'inline-block';
-      if ($('login')) $('login').style.display = 'inline-block';
-      if ($('logout')) $('logout').style.display = 'none';
-      if ($('curAccount')) $('curAccount').textContent = '(not logged)';
+  // if account set, hide input and show logout; also populate email field/curAccount consistently
+  if (account) {
+    if ($('email')) {
+      // keep input hidden, but ensure its value is set (so other scripts reading it get correct value)
+      $('email').value = account;
+      $('email').style.display = 'none';
     }
+    if ($('login')) $('login').style.display = 'none';
+    if ($('logout')) $('logout').style.display = 'inline-block';
+    if ($('curAccount')) $('curAccount').textContent = account;
+  } else {
+    if ($('email')) {
+      $('email').value = '';
+      $('email').style.display = 'inline-block';
+    }
+    if ($('login')) $('login').style.display = 'inline-block';
+    if ($('logout')) $('logout').style.display = 'none';
+    if ($('curAccount')) $('curAccount').textContent = '(not logged)';
   }
+}
 
   showLoginUI();
 
-  // === Server ping (debounced / safe) ===
+  // ---- Consolidated health check + safe auto-sync (drop-in) ----
+  let _isSyncing = false;
   async function checkServer() {
     try {
-      const r = await fetch(API + '/', { method: 'HEAD' });
-      setServerStatus(r && (r.status >= 200 && r.status < 500));
+      let ok = false;
+      const healthUrls = [
+        `${API}/test/selfcheck`,
+        `${API}/health`,
+        `${API}/`
+      ];
+
+      for (const url of healthUrls) {
+        try {
+          // Use GET instead of HEAD — some hosts reject HEAD and return 405
+          const r = await fetch(url, { method: 'GET', cache: 'no-store' });
+          if (r && r.status >= 200 && r.status < 500) { ok = true; break; }
+        } catch (err) {
+          // try next
+        }
+      }
+      setServerStatus(ok);
     } catch (e) {
+      console.warn('checkServer unexpected error', e);
       setServerStatus(false);
     }
 
-    // auto sync if enabled
+    // attempt auto-sync only when server reported alive and account exists
     try {
       const autoEl = document.getElementById('autoSync');
-      if (serverAlive && account && (autoEl && autoEl.checked)) {
-        tryAutoSync();
+      const autoValue = (autoEl && autoEl.value) ? autoEl.value : 'true';
+      if (serverAlive && account && (autoValue === "true")) {
+        if (!_isSyncing) {
+          try {
+            _isSyncing = true;
+            await tryAutoSync();
+          } catch (syncErr) {
+            console.warn('tryAutoSync failed', syncErr);
+          } finally {
+            _isSyncing = false;
+          }
+        }
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      console.warn('checkServer autoSync fail', e);
+    }
   }
-  // faster but safe interval
-  setInterval(checkServer, 3500);
-  checkServer();
 
-  // === Safe fetch wrapper ===
-  async function fetchJSON(url, opts = {}) {
+  if (window._rocky_health_interval) { clearInterval(window._rocky_health_interval); window._rocky_health_interval = null; }
+  window._rocky_health_interval = setInterval(checkServer, 3500);
+  setTimeout(checkServer, 300);
+
+  /**
+   * Safe tryAutoSync: posts local data if present.
+   */
+  async function tryAutoSync(force = false) {
+    if (!account) {
+      if (window._rocky_account_override) {
+        account = window._rocky_account_override;
+        localStorage.setItem('rocky_account', account);
+        showLoginUI();
+      } else return;
+    }
+
+    const local = getLocal(account) || { memories: {}, threads: {} };
+    const hasMem = local.memories && Object.keys(local.memories).length;
+    const hasThreads = local.threads && Object.keys(local.threads).length;
+    const has = (hasMem || hasThreads);
+
+    if (!has && !force) return;
+
     try {
-      const res = await fetch(url, opts);
+      const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(local)
+      });
+
       if (!res.ok) {
-        // bubble up but include status text
-        const text = await res.text().catch(() => '');
-        throw new Error(`${res.status} ${res.statusText} ${text ? ' - ' + text : ''}`);
+        const txt = await res.text().catch(() => '');
+        console.warn('sync_local returned', res.status, txt);
+        return;
       }
-      // Attempt parse json, fallback to null
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        return await res.json();
-      } else {
-        return null;
-      }
-    } catch (err) {
-      console.warn('fetchJSON failed', url, err);
-      throw err;
+
+      try { localStorage.removeItem(localStoreKey(account)); } catch(e){ console.warn('remove local cache failed', e); }
+      appendAssistant('Local data synced to server');
+      try { await loadMemories(); } catch (e) { console.warn('loadMemories after sync failed', e); }
+
+    } catch (e) {
+      console.warn('tryAutoSync network/error', e);
     }
   }
 
-  // attach to window.Rocky for other inline scripts
-  window.Rocky.fetchJSON = fetchJSON;
+  // expose helper debug function to console
+  window.Rocky.debug = function debugRocky() {
+    console.log('API ->', API);
+    console.log('account ->', account);
+    console.log('serverAlive ->', serverAlive);
+    console.log('local ->', getLocal(account));
+    console.log('healthInterval ->', window._rocky_health_interval);
+  };
 
-  // === Chat helpers (append) ===
+  // chat append helpers (safe) with avatars + timestamps
+  function createMsgElement({role, text, time}){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = role === 'user' ? 'YOU' : 'RS';
+    avatar.style.background = role === 'user' ? 'linear-gradient(90deg, rgba(14,165,160,0.12), rgba(14,165,160,0.03))' : 'linear-gradient(90deg, rgba(255,176,32,0.08), rgba(255,176,32,0.02))';
+
+    const who = document.createElement('strong');
+    who.textContent = role === 'user' ? 'You' : 'Assistant';
+
+    const ts = document.createElement('span');
+    ts.style.marginLeft = '8px';
+    ts.style.fontWeight = 600;
+    ts.style.opacity = 0.8;
+    ts.style.fontSize = '12px';
+    ts.textContent = time || nowShort();
+
+    meta.appendChild(avatar);
+    meta.appendChild(who);
+    meta.appendChild(ts);
+
+    const content = document.createElement('div');
+    content.style.marginTop = '8px';
+    content.innerText = text || '';
+
+    wrapper.appendChild(meta);
+    wrapper.appendChild(content);
+    return wrapper;
+  }
+
   function appendUser(text) {
-    const d = document.createElement('div');
-    d.className = 'msg user';
-    d.innerHTML = `<strong>You:</strong> ${esc(text)}`;
     const msgs = $('msgs');
-    if (msgs) {
-      msgs.appendChild(d);
-      msgs.scrollTop = msgs.scrollHeight;
-    }
-  }
-  function appendAssistant(text) {
-    const d = document.createElement('div');
-    d.className = 'msg assistant';
-    d.innerHTML = `<strong>Assistant:</strong> ${esc(text)}`;
-    const msgs = $('msgs');
-    if (msgs) {
-      msgs.appendChild(d);
-      msgs.scrollTop = msgs.scrollHeight;
-    } else {
-      console.log('Assistant:', text);
-    }
+    if (!msgs) return;
+    const el = createMsgElement({role:'user', text, time: nowShort()});
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
   }
 
-  // expose appendAssistant
+  function appendAssistant(text) {
+    const msgs = $('msgs');
+    if (!msgs) { console.log('Assistant:', text); return; }
+    const el = createMsgElement({role:'assistant', text, time: nowShort()});
+    msgs.appendChild(el);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
   window.Rocky.appendAssistant = appendAssistant;
 
-  // === Local fallback storage ===
-  function localStoreKey(acc) { return LOCAL_PREFIX + acc; }
-  function getLocal(acc) {
-    const raw = localStorage.getItem(localStoreKey(acc));
-    return safeParseJSON(raw, { memories: {}, threads: {} });
-  }
-  function pushLocalMemory(acc, k, v) {
-    const p = getLocal(acc);
-    p.memories = p.memories || {};
-    p.memories[k] = { value: v, timestamp: nowISO() };
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
-  }
-  function pushLocalThread(acc, tid, msg) {
-    const p = getLocal(acc);
-    p.threads = p.threads || {};
-    p.threads[tid] = p.threads[tid] || [];
-    p.threads[tid].push(msg);
-    localStorage.setItem(localStoreKey(acc), JSON.stringify(p));
+  function appendAssistantElement(el) {
+    const msgs = $('msgs');
+    if (!msgs) return;
+    const container = document.createElement('div');
+    container.className = 'msg assistant';
+    container.appendChild(el);
+    msgs.appendChild(container);
+    msgs.scrollTop = msgs.scrollHeight;
   }
 
-  // expose local helpers
-  window.Rocky.pushLocalMemory = pushLocalMemory;
-  window.Rocky.pushLocalThread = pushLocalThread;
-  window.Rocky.pushLocal = pushLocalMemory; // alias
-  window.Rocky.getLocal = getLocal;
+  // typing indicator
+  function showTyping(on){
+    const existing = document.getElementById('typingIndicator');
+    if (on) {
+      if (existing) return;
+      const div = document.createElement('div');
+      div.id = 'typingIndicator';
+      div.className = 'typing';
+      div.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div><div style="margin-left:8px">Assistant is typing</div>';
+      const msgs = $('msgs'); if (!msgs) return; msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+    } else {
+      if (existing) existing.remove();
+    }
+  }
 
-  // === Memory CRUD & UI ===
+  // Memory CRUD & UI
   async function loadMemories(q = null) {
     if (!account) return;
-    const memContainer = document.getElementById('memList');
+    const memContainer = $('memList');
     if (memContainer) memContainer.textContent = 'Loading...';
 
     try {
@@ -703,8 +698,10 @@ if (ghostPersEl) {
         const mems = (data && data.memories) || [];
         memEntries = mems.map(m => ({ key: m.key || m._id, value: m.value, raw: m }));
       } else if (serverAlive) {
-        const j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
-        const mems = (j && j.memories) || {};
+        // Defensive: fetch export, guard against non-object responses
+        let j = null;
+        try { j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`); } catch (err) { console.warn('export fetch failed', err); j = null; }
+        const mems = (j && typeof j === 'object' && j.memories) ? j.memories : {};
         memEntries = Object.entries(mems).map(([k, v]) => ({
           key: k.split('::').pop(),
           value: (v && v.value !== undefined) ? v.value : v,
@@ -728,7 +725,6 @@ if (ghostPersEl) {
       }));
     }
 
-    // paging
     pageSize = parseInt((document.getElementById('pageSize') && document.getElementById('pageSize').value) || pageSize, 10);
     const total = memEntries.length;
     const pages = Math.max(1, Math.ceil(total / pageSize));
@@ -751,27 +747,48 @@ if (ghostPersEl) {
       return;
     }
 
-    // Bulk action bar with Select All
+    // bulk bar
     const bulkBar = document.createElement('div');
     bulkBar.style.marginBottom = '8px';
-    bulkBar.innerHTML = `
-      <label style="margin-right:12px">
-        <input type="checkbox" id="selectAllMem" /> Select All
-      </label>
-      <button class="btn btn-ghost" id="deleteSelected">🗑 Delete Selected</button>
-    `;
+    const selectAllLabel = document.createElement('label');
+    selectAllLabel.style.marginRight = '12px';
+    const selectAllCheckbox = document.createElement('input');
+    selectAllCheckbox.type = 'checkbox';
+    selectAllCheckbox.id = 'selectAllMem';
+    selectAllLabel.appendChild(selectAllCheckbox);
+    selectAllLabel.appendChild(document.createTextNode(' Select All'));
+    bulkBar.appendChild(selectAllLabel);
+
+    const deleteSelectedBtn = document.createElement('button');
+    deleteSelectedBtn.className = 'btn btn-ghost';
+    deleteSelectedBtn.id = 'deleteSelected';
+    deleteSelectedBtn.textContent = '🗑 Delete Selected';
+    bulkBar.appendChild(deleteSelectedBtn);
+
     container.appendChild(bulkBar);
 
     items.forEach(it => {
       const div = document.createElement('div');
       div.className = 'memItem';
-      div.innerHTML = `
-        <input type="checkbox" class="memCheck" data-key="${esc(it.key)}" style="margin-right:8px"/>
-        <div style="flex:1">
-          <div class="memKey">${esc(it.key)}</div>
-          <div class="memVal">${esc(it.value)}</div>
-        </div>
-      `;
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'memCheck';
+      cb.dataset.key = it.key || '';
+
+      const left = document.createElement('div');
+      left.style.flex = '1';
+
+      const keyDiv = document.createElement('div');
+      keyDiv.className = 'memKey';
+      keyDiv.textContent = it.key || '';
+
+      const valDiv = document.createElement('div');
+      valDiv.className = 'memVal';
+      valDiv.textContent = (it.value !== undefined && it.value !== null) ? String(it.value) : '';
+
+      left.appendChild(keyDiv);
+      left.appendChild(valDiv);
 
       const controls = document.createElement('div');
       controls.className = 'controls';
@@ -790,65 +807,37 @@ if (ghostPersEl) {
 
       controls.appendChild(view);
       controls.appendChild(forget);
+
+      div.appendChild(cb);
+      div.appendChild(left);
       div.appendChild(controls);
 
       container.appendChild(div);
     });
 
-    // Select All toggle
-    const selectAll = $('selectAllMem');
-    if (selectAll) {
-      selectAll.addEventListener('change', () => {
-        const checks = document.querySelectorAll('.memCheck');
-        checks.forEach(cb => { cb.checked = selectAll.checked; });
-      });
-    }
+    selectAllCheckbox.addEventListener('change', () => {
+      const checks = document.querySelectorAll('.memCheck');
+      checks.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
+    });
 
-    // Multi-delete handler
-    const bulkBtn = $('deleteSelected');
-    if (bulkBtn) {
-      bulkBtn.addEventListener('click', async () => {
-        const selected = [...document.querySelectorAll('.memCheck:checked')].map(cb => cb.dataset.key);
-        if (!selected.length) return alert('No memories selected');
-        if (!confirm(`Delete ${selected.length} memories?`)) return;
-        for (const key of selected) {
-          await forgetMem(key);
-        }
-        appendAssistant(`🗑 Deleted ${selected.length} memories`);
-        loadMemories();
-      });
-    }
+    deleteSelectedBtn.addEventListener('click', async () => {
+      const selected = Array.from(document.querySelectorAll('.memCheck:checked')).map(cb => cb.dataset.key);
+      if (!selected.length) return alert('No memories selected');
+      if (!confirm(`Delete ${selected.length} memories?`)) return;
+      for (const key of selected) {
+        await forgetMem(key);
+      }
+      appendAssistant(`🗑 Deleted ${selected.length} memories`);
+      loadMemories();
+    });
 
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
 
-
-  // === Sync local -> server ===
-  async function tryAutoSync(force = false) {
-    if (!account) return;
-    const local = getLocal(account);
-    const has = ((local.memories && Object.keys(local.memories).length) || (local.threads && Object.keys(local.threads).length));
-    if (!has && !force) return;
-    try {
-      const res = await fetch(`${API}/sync_local/${encodeURIComponent(account)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(local)
-      });
-      if (res.ok) {
-        localStorage.removeItem(localStoreKey(account));
-        appendAssistant('Local data synced to server');
-        await loadMemories();
-      } else {
-        console.warn('sync failed', res.status);
-      }
-    } catch (e) {
-      console.warn('sync failed', e);
-    }
-  }
+  // Sync local -> server (syncBtn wiring below uses this)
   if ($('syncBtn')) $('syncBtn').addEventListener('click', () => tryAutoSync(true));
 
-  // === Search ===
+  // Search
   if ($('searchBtn')) {
     $('searchBtn').addEventListener('click', async () => {
       const q = ($('searchQ').value || '').trim(); currentPage = 1;
@@ -862,25 +851,26 @@ if (ghostPersEl) {
     });
   }
 
-  // === Export ===
+  // Export
   async function triggerExport() {
     if (!account) return alert('Login first');
     try {
-      const res = await fetch(`${API}/export/${encodeURIComponent(account)}`);
-      const data = await res.json();
+      const data = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${String(account).replace(/[^a-z0-9@.\-]/gi, '_')}_export.json`;
       a.click();
     } catch (e) {
-      alert('Export failed — server maybe offline');
+      console.warn('Export error', e);
+      alert('Export failed — server maybe offline or returned an unexpected response');
     }
   }
+
   if ($('exportBtn')) $('exportBtn').addEventListener('click', triggerExport);
   if ($('navExport')) $('navExport').addEventListener('click', triggerExport);
 
-  // === Chat flow (send message, agent) ===
+  // Chat flow
   if ($('messageBox')) {
     $('messageBox').addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -896,22 +886,44 @@ if (ghostPersEl) {
       if (!text) return;
       if (!account) return alert('Login first');
       appendUser(text);
-      $('messageBox').value = '';
+      if ($('messageBox')) $('messageBox').value = '';
       pushLocalThread(account, 'session', { role: 'user', content: text, timestamp: nowISO() });
 
       try {
         const use_llm = !!($('useLLM') && $('useLLM').checked);
+        showTyping(true);
+
+        // POST to agent; handle both JSON and text responses safely
         const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: text, use_llm })
         });
-        const j = await res.json();
-        const reply = j.reply || j.suggested_reply || '[no reply]';
+
+        // parse response robustly
+        let j = null;
+        try {
+          const ct = (res.headers && res.headers.get ? res.headers.get('content-type') : '') || '';
+          if (ct.includes('application/json')) {
+            j = await res.json();
+          } else {
+            const txt = await res.text().catch(() => '');
+            j = { reply: txt || '[no reply]' };
+          }
+        } catch (err) {
+          console.warn('agent response parse error', err);
+          j = { reply: '[invalid response]' };
+        }
+
+        const reply = (j && (j.reply || j.suggested_reply)) || '[no reply]';
+        showTyping(false);
         appendAssistant(reply);
         pushLocalThread(account, 'session', { role: 'assistant', content: reply, timestamp: nowISO() });
-        await loadMemories();
+
+        try { await loadMemories(); } catch(e) { console.warn('loadMemories after agent reply failed', e); }
+
       } catch (e) {
+        showTyping(false);
         appendAssistant('[Server unreachable — response saved locally]');
         pushLocalThread(account, 'session', { role: 'assistant', content: '[saved locally]', timestamp: nowISO() });
       }
@@ -920,7 +932,6 @@ if (ghostPersEl) {
 
   if ($('clearChat')) $('clearChat').addEventListener('click', () => { const m=$('msgs'); if(m) m.innerHTML=''; });
 
-  // Insert last 3 mems into composer
   if ($('refMemsBtn')) {
     $('refMemsBtn').addEventListener('click', () => {
       const slice = memEntries.slice(-3).map(m => `${m.key}: ${m.value}`).join('\n');
@@ -930,56 +941,134 @@ if (ghostPersEl) {
     });
   }
 
-  // Small helper to show/hide the inline viewer panel placed inside the settings side panel.
-  function showViewerPanel() {
-    const vp = $('viewerPanel');
-    if (!vp) return;
-    vp.style.display = 'block';
+  function openViewer(it) {
+    const card = document.createElement('div');
+    card.style.padding = '12px';
+    card.style.borderRadius = '8px';
+    card.style.background = '#fff';
+    card.style.boxShadow = '0 6px 18px rgba(0,0,0,0.06)';
+    const strong = document.createElement('strong');
+    strong.textContent = it.key || '';
+    const pre = document.createElement('pre');
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.marginTop = '8px';
+    pre.textContent = (it.value !== undefined && it.value !== null) ? String(it.value) : '';
+    card.appendChild(strong);
+    card.appendChild(pre);
+    appendAssistantElement(card);
   }
-  function hideViewerPanel() {
-    const vp = $('viewerPanel');
-    if (!vp) return;
-    vp.style.display = 'none';
+
+  // forget memory
+  async function forgetMem(key) {
+    if (!account) return alert('Login first');
+    if (!confirm(`Forget memory "${key}"?`)) return;
+    try {
+      if (serverAlive) {
+        await fetchJSON(`${API}/forget/${encodeURIComponent(account)}/${encodeURIComponent(key)}`, { method: 'DELETE' });
+      } else {
+        const p = getLocal(account);
+        delete p.memories[key];
+        localStorage.setItem(localStoreKey(account), JSON.stringify(p));
+      }
+      appendAssistant(`🗑 Forgot "${key}"`);
+      await loadMemories();
+    } catch (e) {
+      console.warn('forgetMem failed', e);
+      alert('Forget failed');
+    }
+  }
+  window.Rocky.forgetMem = forgetMem;
+  window.Rocky.openViewer = openViewer;
+
+  // Pagination
+  if ($('prevPage')) $('prevPage').addEventListener('click', () => { if (currentPage>1) { currentPage--; loadMemories(); } });
+  if ($('nextPage')) $('nextPage').addEventListener('click', () => { currentPage++; loadMemories(); });
+
+  // Personality save/load & quick toggles
+  async function setPersonalityFlag(flag, value) {
+    if (!account) return;
+    try {
+      await fetchJSON(`${API}/remember`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, key: flag, value })
+      });
+    } catch (err) {
+      pushLocalMemory(account, flag, value);
+    }
   }
 
-  /* Save/Load personality — extended with agent + creativity */
-  const savePersEl = $('savePers');
-  if (savePersEl) {
-    savePersEl.onclick = async () => {
-      if (!account) {
-        alert('Login first');
-        return;
-      }
-      // ---- Personality UI sync (keep quick + stable in sync) ----
-      if ($('toneSel') && $('toneSelStable')) {
-        $('toneSel').addEventListener('change', e => {
-          $('toneSelStable').value = e.target.value;
-        });
-        $('toneSelStable').addEventListener('change', e => {
-          $('toneSel').value = e.target.value;
-        });
-      }
+  async function pingAgent(msg, silent=false) {
+    if (!account) return;
+    try {
+      await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      if (!silent) appendAssistant(`✅ Agent synced: ${msg}`);
+    } catch {
+      if (!silent) appendAssistant('⚠ Agent sync failed (offline)');
+    }
+  }
 
-      if ($('sigInput') && $('sigInputStable')) {
-        $('sigInput').addEventListener('input', e => {
-          $('sigInputStable').value = e.target.value;
-        });
-        $('sigInputStable').addEventListener('input', e => {
-          $('sigInput').value = e.target.value;
-        });
-      }
+  // personality toggles
+  const highestPersEl = $('highestPers');
+  if (highestPersEl) highestPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("highestPers", on);
+    await pingAgent(on ? 'bro personality highest' : 'bro personality reset');
+    appendAssistant(on ? '⚡ Highest Personality activated' : '♻ Highest Personality reset');
+  });
 
-      // ---- SAVE ----
+  const immortalPersEl = $('immortalPers');
+  if (immortalPersEl) immortalPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("immortalPers", on);
+    await pingAgent(on ? 'bro immortal' : 'bro personality reset');
+    appendAssistant(on ? '♾️ Immortal Personality activated' : '♻ Immortal Personality reset');
+  });
+
+  const ghostPersEl = $('ghostPers');
+  if (ghostPersEl) ghostPersEl.addEventListener('change', async e => {
+    if (!account) return alert('Login first');
+    const on = e.target.checked;
+    await setPersonalityFlag("ghostPers", on);
+    await pingAgent(on ? 'bro ghost' : 'bro personality reset');
+    appendAssistant(on ? '👻 Ghost Personality activated' : '♻ Ghost Personality reset');
+  });
+
+  // personality dropdown
+  const sel = $('personalitySel');
+  if (sel) {
+    sel.addEventListener('change', async e => {
+      const val = e.target.value;
+      let cmd = '';
+      if (val === 'highest') cmd = 'bro personality highest';
+      if (val === 'immortal') cmd = 'bro immortal';
+      if (val === 'ghost') cmd = 'bro ghost';
+      if (val === 'default') cmd = 'bro personality reset';
+      if (cmd) {
+        await setPersonalityFlag('activePersonality', val);
+        await pingAgent(cmd);
+        appendAssistant(`🔄 Personality switched to ${val.toUpperCase()}`);
+      }
+    });
+  }
+
+  // save/load personality UI
+  if ($('savePers')) {
+    $('savePers').onclick = async () => {
+      if (!account) return alert('Login first');
       const pers = {
-        agentMode: !!($('agentMode') && $('agentMode').checked),
-        aggressiveness: parseInt($('agentAggressiveness') ? $('agentAggressiveness').value : 5),
         tone: $('toneSel') ? $('toneSel').value : 'consistent',
+        style: $('styleSel') ? $('styleSel').value : 'cofounder-high-energy',
         signature: $('sigInput') ? $('sigInput').value || '' : '',
-        creativity: parseInt($('creativity') ? $('creativity').value : 7),
       };
-
       try {
-        await fetch(`${API}/remember`, {
+        await fetchJSON(`${API}/remember`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account, key: '__personality__', value: pers })
@@ -988,43 +1077,6 @@ if (ghostPersEl) {
       } catch (e) {
         pushLocalMemory(account, '__personality__', pers);
         appendAssistant('⚠ Personality saved locally (server offline)');
-      }
-
-      // ---- LOAD / APPLY BACK TO UI ----
-      let loaded = null;
-
-      // 1) Try server first
-      try {
-        const res = await fetch(`${API}/recall/${encodeURIComponent(account)}/__personality__`);
-        if (res.ok) {
-          const j = await res.json();
-          loaded = j.value || j;
-        }
-      } catch (e) {
-        console.warn('Server recall failed', e);
-      }
-
-      // 2) Fallback to local cache
-      if (!loaded) {
-        const local = getLocal(account);
-        if (local.memories && local.memories['__personality__']) {
-          loaded = local.memories['__personality__'].value || local.memories['__personality__'];
-        }
-      }
-
-      // 3) Apply to UI
-      if (loaded) {
-        if (loaded.agentMode !== undefined) { if ($('agentMode')) $('agentMode').checked = !!loaded.agentMode; }
-        if (loaded.aggressiveness !== undefined) { if ($('agentAggressiveness')) $('agentAggressiveness').value = loaded.aggressiveness; }
-        if (loaded.creativity !== undefined) {
-          if ($('creativity')) { $('creativity').value = loaded.creativity; if ($('creativityLabel')) $('creativityLabel').textContent = loaded.creativity; }
-        }
-        if (loaded.tone && $('toneSel')) $('toneSel').value = loaded.tone;
-        if (loaded.signature && $('sigInput')) $('sigInput').value = loaded.signature;
-
-        appendAssistant('✅ Personality loaded');
-      } else {
-        appendAssistant('⚠ No saved personality found');
       }
     };
   }
@@ -1043,7 +1095,7 @@ if (ghostPersEl) {
           appendAssistant('Personality loaded from server');
           return;
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {}
       const local = getLocal(account);
       const p = (local.memories && local.memories['__personality__'] && local.memories['__personality__'].value) || null;
       if (p) {
@@ -1055,215 +1107,235 @@ if (ghostPersEl) {
     });
   }
 
-  // system prompt
-  if ($('savePrompt')) {
-    $('savePrompt').addEventListener('click', () => {
-      systemPromptSaved = $('systemPrompt').value || '';
-      appendAssistant('System prompt saved (applies when LLM enabled)');
-    });
-  }
-  if ($('clearPrompt')) {
-    $('clearPrompt').addEventListener('click', () => {
-      if ($('systemPrompt')) $('systemPrompt').value = '';
-      systemPromptSaved = '';
-      appendAssistant('System prompt cleared');
-    });
-  }
-
-  // agent runner (guarded in case runAgentOnce button is not present)
-  const runAgentOnceEl = $('runAgentOnce');
-  if (runAgentOnceEl) {
-    runAgentOnceEl.addEventListener('click', async () => {
-      if (!account) return alert('Login first');
-      const local = getLocal(account);
-      const last = (local.threads && local.threads['session'] && local.threads['session'].slice(-1)[0]) || null;
-      if (!last) return alert('No session messages to run agent on');
-      try {
-        const res = await fetch(`${API}/agent/${encodeURIComponent(account)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: last.content, use_llm: false })
-        });
-        const j = await res.json();
-        appendAssistant(j.reply || j.suggested_reply || '[no reply]');
-      } catch (e) {
-        appendAssistant('[Agent run failed — offline]');
-      }
-    });
-  }
-
-  // quick insert tools
-  if ($('insertLastMem')) $('insertLastMem').addEventListener('click', () => {
-    if ($('messageBox')) $('messageBox').value += memEntries.slice(-3).map(m => `${m.key}: ${m.value}`).join('\n');
+  // system prompt save/clear
+  if ($('savePrompt')) $('savePrompt').addEventListener('click', () => {
+    appendAssistant('System prompt saved (applies when LLM enabled)');
   });
-  if ($('insertLastHist')) $('insertLastHist').addEventListener('click', () => {
-    const hist = (getLocal(account).threads && getLocal(account).threads.session || []).slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
-    if ($('messageBox')) $('messageBox').value += '\n\n' + hist;
+  if ($('clearPrompt')) $('clearPrompt').addEventListener('click', () => {
+    if ($('systemPrompt')) $('systemPrompt').value = '';
+    appendAssistant('System prompt cleared');
   });
 
-  // forget all local
-  if ($('forgetAll')) $('forgetAll').addEventListener('click', () => {
-    if (!account) return;
-    localStorage.removeItem(localStoreKey(account));
-    appendAssistant('All local memories cleared');
-    loadMemories();
-  });
+  // login/logout
+  if ($('login')) {
+  $('login').addEventListener('click', async () => {
+    const email = ($('email') && $('email').value || '').trim();
+    if (!email) return alert('Enter an email to login');
+    account = email;
+    localStorage.setItem('rocky_account', account);
 
-  // export all in settings modal
-  if ($('exportAll')) $('exportAll').addEventListener('click', triggerExport);
+    // Update UI immediately and make sure panels/nav reflect logged-in state
+    showLoginUI();
+    try {
+      // set email input value explicitly (some handlers read it)
+      if ($('email')) $('email').value = account;
+    } catch(e){ /* safe */ }
 
-  // Insert last 3 mems into composer (ref button)
-  if ($('refMemsBtn')) {
-    $('refMemsBtn').addEventListener('click', () => {
-      if (!memEntries.length) {
-        alert('No memories available');
-        return;
-      }
-      const slice = memEntries.slice(-3);
-      const text = slice.map(m => `${m.key}: ${m.value}`).join('\n');
-      const box = $('messageBox');
-      if (box) {
-        box.value = (box.value ? box.value + '\n' : '') + text;
-        box.focus();
-      }
-    });
-  }
-
-  /* === Sidebar navigation toggle === */
-  function showPanel(panelId) {
-    // hide all panels
-    ['chatPanel', 'memoryPanel', 'settingsPanel'].forEach(id => {
-      const el = $(id);
-      if (el) el.classList.add('hidden');
-    });
-
-    // deactivate all nav buttons
-    ['navChat', 'navMemory', 'navSettings'].forEach(id => {
-      const btn = $(id);
-      if (btn) btn.classList.remove('active');
-      if (btn) btn.setAttribute('aria-pressed', 'false');
-    });
-
-    // show requested panel
-    const panel = $(panelId);
-    if (panel) panel.classList.remove('hidden');
-
-    // mark correct button active
-    if (panelId === 'chatPanel') {
+    // Show chat panel and mark nav state
+    if (typeof showPanel === 'function') {
+      showPanel('chat');
+      // ensure chat nav button active (defensive)
       if ($('navChat')) { $('navChat').classList.add('active'); $('navChat').setAttribute('aria-pressed', 'true'); }
     }
-    if (panelId === 'memoryPanel') {
-      if ($('navMemory')) { $('navMemory').classList.add('active'); $('navMemory').setAttribute('aria-pressed', 'true'); }
-      loadMemories(); // refresh memory list when opened
-    }
-    if (panelId === 'settingsPanel') {
-      if ($('navSettings')) { $('navSettings').classList.add('active'); $('navSettings').setAttribute('aria-pressed', 'true'); }
-    }
-  }
 
-  if ($('navChat')) $('navChat').onclick = () => showPanel('chatPanel');
-  if ($('navMemory')) $('navMemory').onclick = () => showPanel('memoryPanel');
-  if ($('navSettings')) $('navSettings').onclick = () => showPanel('settingsPanel');
+    appendAssistant(`✅ Logged in as ${account}`);
 
-  /* === Default Startup === */
-  document.addEventListener('DOMContentLoaded', () => {
-    showPanel('chatPanel');
-    if ($('navChat')) { $('navChat').classList.add('active'); $('navChat').setAttribute('aria-pressed', 'true'); }
+    // Immediately load memories (no brittle timeout)
+    try { await loadMemories(); } catch (e) { console.warn('loadMemories after login failed', e); }
+
+    // Optionally: auto-restore toggles (if function exists)
+    if (typeof restorePersonalityFlags === 'function') {
+      try { await restorePersonalityFlags(true); } catch(e){ /* ignore */ }
+    }
   });
-
-  // === Login / Session ===
-  if ($('login')) {
-    $('login').addEventListener('click', async () => {
-      const em = ($('email').value || '').trim();
-      if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { alert('Enter a valid email'); return; }
-      account = em;
-      localStorage.setItem('rocky_account', account);
-      showLoginUI();
-      try {
-        // try to create server session silently
-        await fetchJSON(API + '/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account }) });
-      } catch (e) { /* ignore */ }
-      try {
-        await fetchJSON(API + '/remember', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account, key: 'email', value: account }) });
-      } catch (e) { /* ignore */ }
-      appendAssistant(`Logged in as ${account}`);
-      await loadMemories();
-
-      // 🚀 Auto-restore Highest + Immortal Personality on login
-      try {
-        await restorePersonalityFlags(true);
-        appendAssistant('♻ Personality toggles restored & agent synced (auto)');
-      } catch (e) { /* ignore */ }
-    });
-  }
+}
 
   if ($('logout')) {
     $('logout').addEventListener('click', () => {
       localStorage.removeItem('rocky_account');
       account = '';
-      if ($('email')) $('email').value = '';  // clear UI
       showLoginUI();
-      appendAssistant('Logged out');
-      memEntries = [];
-      renderMemList([]);
-      showPanel('chatPanel'); // reset to chat
+      appendAssistant('🔒 Logged out');
     });
   }
 
-  // Insert last 3 mems into composer (another ref handler - safe)
-  if ($('refMemsBtn')) {
-    $('refMemsBtn').addEventListener('click', () => {
-      if (!memEntries.length) {
-        alert('No memories available');
-        return;
-      }
-      const slice = memEntries.slice(-3);
-      const text = slice.map(m => `${m.key}: ${m.value}`).join('\n');
-      const box = $('messageBox');
-      if (box) {
-        box.value = (box.value ? box.value + '\n' : '') + text;
-        box.focus();
+  // add quick memory
+  if ($('addQuick')) {
+    $('addQuick').addEventListener('click', async () => {
+      if (!account) return alert('Login first');
+      const k = ($('addKey').value || '').trim();
+      const v = ($('addVal').value || '').trim();
+      if (!k) return alert('Provide a key');
+      try {
+        if (serverAlive) {
+          await fetchJSON(`${API}/remember`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ account, key: k, value: v })
+          });
+          appendAssistant(`✅ Saved memory "${k}"`);
+        } else {
+          pushLocalMemory(account, k, v);
+          appendAssistant(`✅ Saved memory "${k}" locally`);
+        }
+        $('addKey').value = '';
+        $('addVal').value = '';
+        await loadMemories();
+      } catch (e) {
+        console.warn('addQuick failed', e);
+        appendAssistant('⚠ Save failed');
       }
     });
   }
 
-  // === Init ===
-  (async function init() {
-    if (account) {
-      if ($('email')) $('email').value = account;
-      showLoginUI();
-      appendAssistant('Welcome back — account loaded');
+  // bulk add handler
+  if ($('bulkAddBtn')) {
+    $('bulkAddBtn').addEventListener('click', async () => {
+      if (!account) return alert('Login first');
+      const text = ($('bulkMemories').value || '').trim();
+      if (!text) return alert('Provide bulk data');
+      let mems = [];
+      try {
+        if (text.startsWith('{')) {
+          const obj = JSON.parse(text);
+          mems = Object.entries(obj);
+        } else {
+          mems = text.split('\n').map(l => l.split(':')).filter(a => a.length >= 2);
+        }
+      } catch (e) {
+        return alert('Invalid format — use JSON or key:value per line');
+      }
+      let added = 0;
+      for (const [k, v] of mems) {
+        try {
+          if (serverAlive) {
+            await fetchJSON(`${API}/remember`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ account, key: k.trim(), value: v.toString().trim() })
+            });
+          } else {
+            pushLocalMemory(account, k.trim(), v.toString().trim());
+          }
+          added++;
+        } catch (err) {
+          pushLocalMemory(account, k.trim(), v.toString().trim());
+        }
+      }
+      $('bulkMemories').value = '';
+      appendAssistant(`✅ Added ${added} memories`);
       await loadMemories();
-      // if server not reachable, show local cache immediately
+    });
+  }
+
+  // initial load if logged in
+ // Robust initial restore on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  // if account found in localStorage, restore UI & data
+  account = localStorage.getItem('rocky_account') || account || '';
+  if (account) {
+    // populate email input so UI & other scripts see it
+    if ($('email')) $('email').value = account;
+    showLoginUI();
+
+    // show chat panel by default and mark nav active
+    if (typeof showPanel === 'function') showPanel('chat');
+
+    appendAssistant('Welcome back — account loaded');
+
+    try {
+      await loadMemories();
+      // if server offline, render local cache immediately
       if (!serverAlive) {
         const local = getLocal(account);
         memEntries = Object.entries(local.memories || {}).map(([k, v]) => ({ key: k, value: v.value || v, raw: v }));
         renderMemList(memEntries, memEntries.length, 1, Math.max(1, Math.ceil(memEntries.length / pageSize)));
       }
-    } else {
-      appendAssistant('Welcome. Login with email to namespace memory to your account.');
+    } catch (e) {
+      console.warn('initial loadMemories failed', e);
     }
-    if ($('navChat')) $('navChat').classList.add('active');
-    showPanel('chatPanel');
-  })();
 
-  // expose for debugging / console
-  window.Rocky.loadMemories = loadMemories;
-  window.Rocky.tryAutoSync = tryAutoSync;
-  window.Rocky.getLocal = getLocal;
-  window.Rocky.fetchJSON = fetchJSON;
-  window.Rocky.appendAssistant = appendAssistant;
-  window.Rocky.pushLocalMemory = pushLocalMemory;
-  window.Rocky.pushLocalThread = pushLocalThread;
+    // try to silently restore toggles/personality if available
+    if (typeof restorePersonalityFlags === 'function') {
+      try { await restorePersonalityFlags(true); } catch(e){ /* ignore */ }
+    }
+  } else {
+    // no account — ensure UI is in default state
+    showLoginUI();
+    if (typeof showPanel === 'function') showPanel('chat');
+    appendAssistant('Welcome. Login with email to namespace memory to your account.');
+  }
+});
 
-})();
-// ---- Creativity slider live label update ----
-if ($('creativity') && $('creativityLabel')) {
-  $('creativity').addEventListener('input', e => {
-    $('creativityLabel').textContent = e.target.value;
+</script>
+ 
+<script>
+(function(){
+  console.log("✅ Rocky self-test script loaded");
+
+  if (!window.Rocky) window.Rocky = {};
+
+  window.Rocky.debug = function(){
+    console.log("API →", window.Rocky.API_BASE || "(not set)");
+    console.log("account →", localStorage.getItem("rocky_account") || "(none)");
+    console.log("serverAlive →", typeof serverAlive !== "undefined" ? serverAlive : "(not wired)");
+  };
+
+  // ---- Panel navigation ----
+  function showPanel(nameRaw) {
+    const PANEL_MAP = {
+      chat: 'chatPanel',
+      chatpanel: 'chatPanel',
+      memory: 'memoryPanel',
+      memories: 'memoryPanel',
+      memorypanel: 'memoryPanel',
+      settings: 'settingsPanel',
+      settingspanel: 'settingsPanel'
+    };
+    const name = (nameRaw || '').toLowerCase().trim();
+    const targetId = PANEL_MAP[name] || 'chatPanel';
+
+    // hide/show panels
+    ['chatPanel','memoryPanel','settingsPanel'].forEach(pid => {
+      const el = document.getElementById(pid);
+      if (el) el.classList.toggle('hidden', pid !== targetId);
+    });
+
+    // nav button states
+    [
+      {btnId:'navChat', panelId:'chatPanel'},
+      {btnId:'navMemory', panelId:'memoryPanel'},
+      {btnId:'navSettings', panelId:'settingsPanel'}
+    ].forEach(n => {
+      const b = document.getElementById(n.btnId);
+      if (b) {
+        const active = (n.panelId === targetId);
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-pressed', String(active));
+      }
+    });
+
+    try { localStorage.setItem('rocky_last_panel', targetId); } catch(e){}
+    if (targetId === 'memoryPanel') {
+      try { if (typeof loadMemories === 'function') loadMemories(); } catch(e) {}
+    }
+  }
+  window.showPanel = showPanel;
+
+  // wire clicks
+  [['navChat','chat'],['navMemory','memory'],['navSettings','settings']].forEach(([id, name]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => showPanel(name));
   });
-}
+
+  // restore last view
+  showPanel(localStorage.getItem('rocky_last_panel') || 'chat');
+
+  // auto-run debug
+  setTimeout(() => Rocky.debug(), 500);
+})();
+</script>
+
+
 </body>
 </html>
-
-
