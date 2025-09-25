@@ -484,18 +484,27 @@ console.log("✅ Rocky API base locked to", API);
   setServerStatus(false);
 
   function showLoginUI() {
-    if (account) {
-      if ($('email')) $('email').style.display = 'none';
-      if ($('login')) $('login').style.display = 'none';
-      if ($('logout')) $('logout').style.display = 'inline-block';
-      if ($('curAccount')) $('curAccount').textContent = account;
-    } else {
-      if ($('email')) $('email').style.display = 'inline-block';
-      if ($('login')) $('login').style.display = 'inline-block';
-      if ($('logout')) $('logout').style.display = 'none';
-      if ($('curAccount')) $('curAccount').textContent = '(not logged)';
+  // if account set, hide input and show logout; also populate email field/curAccount consistently
+  if (account) {
+    if ($('email')) {
+      // keep input hidden, but ensure its value is set (so other scripts reading it get correct value)
+      $('email').value = account;
+      $('email').style.display = 'none';
     }
+    if ($('login')) $('login').style.display = 'none';
+    if ($('logout')) $('logout').style.display = 'inline-block';
+    if ($('curAccount')) $('curAccount').textContent = account;
+  } else {
+    if ($('email')) {
+      $('email').value = '';
+      $('email').style.display = 'inline-block';
+    }
+    if ($('login')) $('login').style.display = 'inline-block';
+    if ($('logout')) $('logout').style.display = 'none';
+    if ($('curAccount')) $('curAccount').textContent = '(not logged)';
   }
+}
+
   showLoginUI();
 
   // ---- Consolidated health check + safe auto-sync (drop-in) ----
@@ -1109,16 +1118,38 @@ console.log("✅ Rocky API base locked to", API);
 
   // login/logout
   if ($('login')) {
-    $('login').addEventListener('click', () => {
-      const email = ($('email') && $('email').value || '').trim();
-      if (!email) return alert('Enter an email to login');
-      account = email;
-      localStorage.setItem('rocky_account', account);
-      showLoginUI();
-      appendAssistant(`✅ Logged in as ${account}`);
-      setTimeout(() => loadMemories(), 150);
-    });
-  }
+  $('login').addEventListener('click', async () => {
+    const email = ($('email') && $('email').value || '').trim();
+    if (!email) return alert('Enter an email to login');
+    account = email;
+    localStorage.setItem('rocky_account', account);
+
+    // Update UI immediately and make sure panels/nav reflect logged-in state
+    showLoginUI();
+    try {
+      // set email input value explicitly (some handlers read it)
+      if ($('email')) $('email').value = account;
+    } catch(e){ /* safe */ }
+
+    // Show chat panel and mark nav state
+    if (typeof showPanel === 'function') {
+      showPanel('chat');
+      // ensure chat nav button active (defensive)
+      if ($('navChat')) { $('navChat').classList.add('active'); $('navChat').setAttribute('aria-pressed', 'true'); }
+    }
+
+    appendAssistant(`✅ Logged in as ${account}`);
+
+    // Immediately load memories (no brittle timeout)
+    try { await loadMemories(); } catch (e) { console.warn('loadMemories after login failed', e); }
+
+    // Optionally: auto-restore toggles (if function exists)
+    if (typeof restorePersonalityFlags === 'function') {
+      try { await restorePersonalityFlags(true); } catch(e){ /* ignore */ }
+    }
+  });
+}
+
   if ($('logout')) {
     $('logout').addEventListener('click', () => {
       localStorage.removeItem('rocky_account');
@@ -1198,9 +1229,44 @@ console.log("✅ Rocky API base locked to", API);
   }
 
   // initial load if logged in
+ // Robust initial restore on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  // if account found in localStorage, restore UI & data
+  account = localStorage.getItem('rocky_account') || account || '';
   if (account) {
-    setTimeout(() => { loadMemories(); }, 200);
+    // populate email input so UI & other scripts see it
+    if ($('email')) $('email').value = account;
+    showLoginUI();
+
+    // show chat panel by default and mark nav active
+    if (typeof showPanel === 'function') showPanel('chat');
+
+    appendAssistant('Welcome back — account loaded');
+
+    try {
+      await loadMemories();
+      // if server offline, render local cache immediately
+      if (!serverAlive) {
+        const local = getLocal(account);
+        memEntries = Object.entries(local.memories || {}).map(([k, v]) => ({ key: k, value: v.value || v, raw: v }));
+        renderMemList(memEntries, memEntries.length, 1, Math.max(1, Math.ceil(memEntries.length / pageSize)));
+      }
+    } catch (e) {
+      console.warn('initial loadMemories failed', e);
+    }
+
+    // try to silently restore toggles/personality if available
+    if (typeof restorePersonalityFlags === 'function') {
+      try { await restorePersonalityFlags(true); } catch(e){ /* ignore */ }
+    }
+  } else {
+    // no account — ensure UI is in default state
+    showLoginUI();
+    if (typeof showPanel === 'function') showPanel('chat');
+    appendAssistant('Welcome. Login with email to namespace memory to your account.');
   }
+});
+
 </script>
  
 <script>
@@ -1273,6 +1339,7 @@ console.log("✅ Rocky API base locked to", API);
 
 </body>
 </html>
+
 
 
 
