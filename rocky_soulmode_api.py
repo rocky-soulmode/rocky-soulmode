@@ -1104,7 +1104,7 @@ async def save_memory(account: str, payload: dict):
     except Exception as e:
         return {"error": str(e)}
 
-    @app.get("/export/{account}")
+@app.get("/export/{account}")
 async def export_memories(account: str):
     try:
         # 1. Try Redis first
@@ -1404,6 +1404,7 @@ if __name__ == '__main__':
             logger.error(f"Failed to start uvicorn: {e}")
     else:
         run_demo()
+
 
 
 
