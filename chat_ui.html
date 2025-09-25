@@ -411,7 +411,7 @@
   }
 
  // 🚀 Hard-set API base directly to your Render backend
-const API = 'http://127.0.0.1:8000';
+const API = 'https://rocky-soulmode.onrender.com';
 
   window.Rocky = window.Rocky || {};
 window.Rocky.API_BASE = API;
@@ -454,16 +454,16 @@ console.log("✅ Rocky API base locked to", API);
 
   // fetch helper with better error messages
   async function fetchJSON(url, opts = {}) {
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`${res.status} ${res.statusText}${text ? ' - ' + text : ''}`);
-    }
-    const ct = res.headers.get('content-type') || '';
-    if (ct.includes('application/json')) return await res.json();
-    return await res.text();
+  const res = await fetch(url, opts);
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("❌ fetchJSON parse failed:", url, "\nGot response:\n", text.slice(0,300));
+    throw e;
   }
-  window.Rocky.fetchJSON = fetchJSON;
+}
+
 
   // ---- state ----
   let account = localStorage.getItem('rocky_account') || '';
@@ -1384,5 +1384,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 </body>
 </html>
+
 
 
