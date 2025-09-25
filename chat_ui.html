@@ -687,25 +687,65 @@ console.log("✅ Rocky API base locked to", API);
   }
 
   // Memory CRUD & UI
-  async function loadMemories(q = null) {
-    if (!account) return;
+    async function loadMemories(q = null) {
+    // ensure we still attempt to read local cache even if account isn't set at call time
+    if (!account) {
+      // ensure UI reflects lack of account
+      const memContainerEmpty = $('memList');
+      if (memContainerEmpty) memContainerEmpty.innerHTML = '<div class="small">No memories (not logged)</div>';
+      return;
+    }
+
     const memContainer = $('memList');
     if (memContainer) memContainer.textContent = 'Loading...';
 
     try {
+      // If server is alive and query provided -> use search endpoint
       if (serverAlive && q) {
         const data = await fetchJSON(`${API}/search?q=${encodeURIComponent(q)}&limit=200`);
-        const mems = (data && data.memories) || [];
-        memEntries = mems.map(m => ({ key: m.key || m._id, value: m.value, raw: m }));
-      } else if (serverAlive) {
-        const j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
-        const mems = (j && j.memories) || {};
-        memEntries = Object.entries(mems).map(([k, v]) => ({
-          key: k.split('::').pop(),
-          value: (v && v.value !== undefined) ? v.value : v,
-          raw: v
-        }));
-      } else {
+        // server may return { memories: [...] } OR an array directly
+        const memsArr = Array.isArray(data) ? data : (data && data.memories) ? data.memories : [];
+        memEntries = memsArr.map(m => ({ key: (m.key || m._id || String(m.key)).toString(), value: m.value || '', raw: m }));
+      }
+      // If server is alive and no query -> use export; server might return { memories: {...} } or an object/array
+      else if (serverAlive) {
+        let j = null;
+        try {
+          j = await fetchJSON(`${API}/export/${encodeURIComponent(account)}`);
+        } catch (err) {
+          console.warn('export fetch failed', err);
+          j = null;
+        }
+
+        // Normalize: accept { memories: {k: v} }, accept an array, accept direct object map
+        if (j && Array.isArray(j)) {
+          // array of memory objects
+          memEntries = j.map(m => ({ key: (m.key || m._id || '').toString(), value: m.value || '', raw: m }));
+        } else if (j && typeof j === 'object' && j.memories && typeof j.memories === 'object') {
+          memEntries = Object.entries(j.memories).map(([k, v]) => ({
+            key: k.split('::').pop(),
+            value: (v && v.value !== undefined) ? v.value : v,
+            raw: v
+          }));
+        } else if (j && typeof j === 'object') {
+          // treat j as a map of memories directly
+          memEntries = Object.entries(j).map(([k, v]) => ({
+            key: k.split('::').pop(),
+            value: (v && v.value !== undefined) ? v.value : v,
+            raw: v
+          }));
+        } else {
+          // fallback to local if export returned unexpected shape
+          const local = getLocal(account);
+          memEntries = Object.entries(local.memories || {}).map(([k, v]) => ({
+            key: k,
+            value: (v && v.value !== undefined) ? v.value : v,
+            raw: v
+          }));
+        }
+      }
+      // server is not alive — read local
+      else {
         const local = getLocal(account);
         memEntries = Object.entries(local.memories || {}).map(([k, v]) => ({
           key: k,
@@ -723,8 +763,9 @@ console.log("✅ Rocky API base locked to", API);
       }));
     }
 
+    // paging + render
     pageSize = parseInt((document.getElementById('pageSize') && document.getElementById('pageSize').value) || pageSize, 10);
-    const total = memEntries.length;
+    const total = memEntries.length || 0;
     const pages = Math.max(1, Math.ceil(total / pageSize));
     if (currentPage > pages) currentPage = pages;
     const start = (currentPage - 1) * pageSize;
@@ -732,39 +773,34 @@ console.log("✅ Rocky API base locked to", API);
     renderMemList(memEntries.slice(start, end), total, currentPage, pages);
   }
 
-  function renderMemList(items = [], total = 0, page = 1, pages = 1) {
+
+    function renderMemList(items = [], total = 0, page = 1, pages = 1) {
     const container = $('memList');
     if (!container) return;
-    container.innerHTML = '';
+
+    // remove previous content and any previously-attached handlers by replacing node
+    const newContainer = container.cloneNode(false);
+    container.parentNode.replaceChild(newContainer, container);
+
     const countEl = $('memCount');
     if (countEl) countEl.textContent = String(total);
 
     if (!items.length) {
-      container.innerHTML = '<div class="small">No memories</div>';
+      newContainer.innerHTML = '<div class="small">No memories</div>';
       if ($('pageInfo')) $('pageInfo').textContent = `Page ${page}/${pages}`;
       return;
     }
 
-    // bulk bar
+    // bulk bar (idempotent because node was replaced)
     const bulkBar = document.createElement('div');
     bulkBar.style.marginBottom = '8px';
-    const selectAllLabel = document.createElement('label');
-    selectAllLabel.style.marginRight = '12px';
-    const selectAllCheckbox = document.createElement('input');
-    selectAllCheckbox.type = 'checkbox';
-    selectAllCheckbox.id = 'selectAllMem';
-    selectAllLabel.appendChild(selectAllCheckbox);
-    selectAllLabel.appendChild(document.createTextNode(' Select All'));
-    bulkBar.appendChild(selectAllLabel);
+    bulkBar.innerHTML = `
+      <label style="margin-right:12px"><input type="checkbox" id="selectAllMem" /> Select All</label>
+      <button class="btn btn-ghost" id="deleteSelected">🗑 Delete Selected</button>
+    `;
+    newContainer.appendChild(bulkBar);
 
-    const deleteSelectedBtn = document.createElement('button');
-    deleteSelectedBtn.className = 'btn btn-ghost';
-    deleteSelectedBtn.id = 'deleteSelected';
-    deleteSelectedBtn.textContent = '🗑 Delete Selected';
-    bulkBar.appendChild(deleteSelectedBtn);
-
-    container.appendChild(bulkBar);
-
+    // render items
     items.forEach(it => {
       const div = document.createElement('div');
       div.className = 'memItem';
@@ -794,6 +830,7 @@ console.log("✅ Rocky API base locked to", API);
       const view = document.createElement('button');
       view.className = 'btn btn-ghost';
       view.textContent = 'View';
+      view.dataset.key = it.key || '';
       view.addEventListener('click', () => openViewer(it));
 
       const forget = document.createElement('button');
@@ -801,6 +838,7 @@ console.log("✅ Rocky API base locked to", API);
       forget.style.background = 'var(--danger)';
       forget.style.color = '#fff';
       forget.textContent = 'Forget';
+      forget.dataset.key = it.key || '';
       forget.addEventListener('click', () => forgetMem(it.key));
 
       controls.appendChild(view);
@@ -810,27 +848,36 @@ console.log("✅ Rocky API base locked to", API);
       div.appendChild(left);
       div.appendChild(controls);
 
-      container.appendChild(div);
+      newContainer.appendChild(div);
     });
 
-    selectAllCheckbox.addEventListener('change', () => {
-      const checks = document.querySelectorAll('.memCheck');
-      checks.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
-    });
+    // wire single handlers (safe: node is fresh so no duplicate listeners)
+    const selectAllCheckbox = newContainer.querySelector('#selectAllMem');
+    const deleteSelectedBtn = newContainer.querySelector('#deleteSelected');
 
-    deleteSelectedBtn.addEventListener('click', async () => {
-      const selected = Array.from(document.querySelectorAll('.memCheck:checked')).map(cb => cb.dataset.key);
-      if (!selected.length) return alert('No memories selected');
-      if (!confirm(`Delete ${selected.length} memories?`)) return;
-      for (const key of selected) {
-        await forgetMem(key);
-      }
-      appendAssistant(`🗑 Deleted ${selected.length} memories`);
-      loadMemories();
-    });
+    if (selectAllCheckbox) {
+      selectAllCheckbox.addEventListener('change', () => {
+        const checks = newContainer.querySelectorAll('.memCheck');
+        checks.forEach(cb => { cb.checked = selectAllCheckbox.checked; });
+      });
+    }
+
+    if (deleteSelectedBtn) {
+      deleteSelectedBtn.addEventListener('click', async () => {
+        const selected = Array.from(newContainer.querySelectorAll('.memCheck:checked')).map(cb => cb.dataset.key);
+        if (!selected.length) return alert('No memories selected');
+        if (!confirm(`Delete ${selected.length} memories?`)) return;
+        for (const key of selected) {
+          await forgetMem(key);
+        }
+        appendAssistant(`🗑 Deleted ${selected.length} memories`);
+        await loadMemories();
+      });
+    }
 
     if ($('pageInfo')) $('pageInfo').textContent = `Page ${page} / ${pages}`;
   }
+
 
   // Sync local -> server (syncBtn wiring below uses this)
   if ($('syncBtn')) $('syncBtn').addEventListener('click', () => tryAutoSync(true));
@@ -1337,4 +1384,5 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 </body>
 </html>
+
 
