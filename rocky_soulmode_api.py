@@ -1078,9 +1078,8 @@ if HAS_FASTAPI:
         ok = forget_data(account, key)
         return {"status": "forgotten" if ok else "not_found"}
     
-    @app.post("/save/{account}")
-    
- async def save_memory(account: str, payload: dict):
+@app.post("/save/{account}")
+async def save_memory(account: str, payload: dict):
     try:
         key = payload.get("key")
         value = payload.get("value")
@@ -1405,6 +1404,7 @@ if __name__ == '__main__':
             logger.error(f"Failed to start uvicorn: {e}")
     else:
         run_demo()
+
 
 
 
