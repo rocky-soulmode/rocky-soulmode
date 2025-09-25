@@ -6,6 +6,8 @@
   <title>Rocky Soulmode — Chat Memory (Patched)</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
+  <link rel="icon" href="data:,">
+  
     /* ---------- Theme & layout (kept your polished design, cleaned) ---------- */
     :root{
       --bg: #f6f9fc;
@@ -463,15 +465,14 @@ console.log("✅ Rocky API base locked to", API);
   // fetch helper with better error messages
  async function fetchJSON(url, opts = {}) {
   const res = await fetch(url, opts);
-  const text = await res.text();
+  const text = await res.text();  // always read as text first
   try {
-    return JSON.parse(text);
-  } catch (e) {
-    console.error("❌ fetchJSON parse failed", url, "\nResponse was:", text.slice(0,200));
-    return {}; // fail gracefully
+    return JSON.parse(text);      // parse JSON if possible
+  } catch {
+    console.warn("⚠ Non-JSON response from", url, "→", text.slice(0,200));
+    return { error: true, raw: text, status: res.status };
   }
 }
-
 
 
   // ---- state ----
@@ -1393,6 +1394,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 </body>
 </html>
+
 
 
 
